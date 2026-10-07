@@ -1,0 +1,766 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+</head>
+<body>
+<title>Docx Desk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Carlito:ital,wght@0,400;0,700;1,400;1,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400&family=Caveat:wght@500&family=Homemade+Apple&family=Mrs+Saint+Delafield&display=swap">
+<style>
+/* Layout: a writing desk — sticky toolbar strip over a tinted ground, one paper sheet centered, status bar under it. */
+:root {
+  --ground: #e6e9ec;
+  --paper: #ffffff;
+  --ink: #1d2328;
+  --muted: #5f6a73;
+  --line: #cfd5da;
+  --chrome: #f5f7f8;
+  --accent: #1f5a78;
+  --accent-soft: #dceaf1;
+  --warn: #9a5b00;
+  --doc-ink: #1b1b1b;
+  --font-ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-doc: "Carlito", Calibri, "Segoe UI", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #15191c; --paper: #fbfbfa; --ink: #e3e7ea; --muted: #9aa5ae; --line: #2f363c;
+    --chrome: #1d2226; --accent: #7fb6d3; --accent-soft: #23343e; --warn: #e0a64a; --doc-ink: #1b1b1b;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #15191c; --paper: #fbfbfa; --ink: #e3e7ea; --muted: #9aa5ae; --line: #2f363c;
+  --chrome: #1d2226; --accent: #7fb6d3; --accent-soft: #23343e; --warn: #e0a64a; --doc-ink: #1b1b1b;
+  color-scheme: dark;
+}
+[hidden] { display: none !important; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--ground); color: var(--ink); font-family: var(--font-ui); font-size: 14px; display: flex; flex-direction: column; }
+
+.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--chrome); border-bottom: 1px solid var(--line); }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 16px; }
+.row + .row { border-top: 1px solid var(--line); }
+.file { gap: 10px; }
+.brand { font-weight: 600; letter-spacing: .02em; margin-right: 4px; }
+#docName { flex: 1 1 180px; min-width: 0; font: 500 14px var(--font-ui); color: var(--ink); background: transparent; border: 1px solid transparent; border-radius: 4px; padding: 5px 8px; }
+#docName:hover, #docName:focus { border-color: var(--line); background: var(--ground); outline: none; }
+.ext { color: var(--muted); font-family: var(--font-mono); font-size: 12px; margin-left: -6px; }
+
+button, select, .btn { font: 500 13px var(--font-ui); color: var(--ink); background: transparent; border: 1px solid transparent; border-radius: 4px; height: 30px; min-width: 30px; padding: 0 8px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+button:hover, select:hover, .btn:hover { background: var(--ground); border-color: var(--line); }
+button:focus-visible, select:focus-visible, .btn:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+select { border-color: var(--line); background: var(--paper); color: var(--doc-ink); padding-right: 4px; }
+.primary { background: var(--accent); color: var(--chrome); border-color: var(--accent); }
+.primary:hover { background: var(--accent); filter: brightness(1.08); border-color: var(--accent); }
+.sep { width: 1px; height: 20px; background: var(--line); margin: 0 4px; }
+.btn input { display: none; }
+svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.k { font-family: var(--font-doc); font-size: 15px; }
+
+.find { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 16px; border-top: 1px solid var(--line); }
+.find input { font: 13px var(--font-ui); color: var(--ink); background: var(--paper); color: var(--doc-ink); border: 1px solid var(--line); border-radius: 4px; height: 30px; padding: 0 8px; flex: 1 1 140px; min-width: 0; }
+#findMsg { color: var(--muted); font-size: 12px; }
+
+main { flex: 1; overflow: auto; padding-block: 28px 40px; padding-inline: 16px; }
+.sheet { max-width: 816px; margin: 0 auto; background: var(--paper); color: var(--doc-ink); box-shadow: 0 1px 2px rgba(0,0,0,.12), 0 6px 24px rgba(20,40,60,.10); min-height: 1056px; }
+#editor { padding: 72px 84px; min-height: 1056px; outline: none; font-family: var(--font-doc); font-size: 11pt; line-height: 1.4; overflow-wrap: anywhere; }
+@media (max-width: 640px) { #editor { padding: 32px 22px; } main { padding-block: 16px 24px; } }
+#editor h1 { font-size: 20pt; font-weight: 700; margin: 0 0 10pt; text-wrap: balance; color: #1f3a4d; }
+#editor h2 { font-size: 15pt; font-weight: 700; margin: 16pt 0 6pt; color: #1f3a4d; }
+#editor h3 { font-size: 12.5pt; font-weight: 700; margin: 12pt 0 4pt; color: #1f3a4d; }
+#editor p { margin: 0 0 8pt; }
+#editor blockquote { margin: 8pt 0 8pt 24pt; padding-left: 12pt; border-left: 3px solid #b9c6cf; font-style: italic; color: #3b4650; }
+#editor ul, #editor ol { margin: 0 0 8pt; padding-left: 28pt; }
+#editor a { color: #1f5a78; }
+#editor img { max-width: 100%; height: auto; }
+#editor table { border-collapse: collapse; width: 100%; margin: 6pt 0 10pt; }
+#editor td, #editor th { border: 1px solid #9aa7b1; padding: 4pt 6pt; vertical-align: top; min-width: 40px; }
+#editor th { background: #eef2f4; text-align: left; }
+#editor mark.hit { background: #ffe58a; color: inherit; }
+
+.status { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 8px 16px calc(8px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--line); background: var(--chrome); color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+#msg { margin-left: auto; color: var(--ink); }
+#msg.warn { color: var(--warn); }
+.drop::after { content: "Drop a .docx file to open it"; position: fixed; inset: 0; display: grid; place-items: center; font: 600 18px var(--font-ui); color: var(--accent); background: color-mix(in srgb, var(--ground) 85%, transparent); border: 3px dashed var(--accent); z-index: 20; }
+@media (prefers-reduced-motion: no-preference) { button { transition: background .12s; } }
+
+/* signature dialog */
+.scrim { position: fixed; inset: 0; z-index: 30; background: color-mix(in srgb, var(--ground) 70%, transparent); display: grid; place-items: center; padding: 16px; }
+.dlg { width: min(560px, 100%); max-height: 100%; overflow: auto; background: var(--chrome); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 12px 40px rgba(10,25,40,.25); display: flex; flex-direction: column; gap: 14px; padding: 18px; }
+.dlg h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+.tabs button { border-radius: 4px 4px 0 0; border: 1px solid transparent; border-bottom: none; margin-bottom: -1px; }
+.tabs button[aria-selected="true"] { background: var(--paper); color: var(--doc-ink); border-color: var(--line); }
+.field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.field input[type=text] { font: 14px var(--font-ui); height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--paper); color: var(--doc-ink); }
+.pad-wrap { position: relative; background: var(--paper); border: 1px solid var(--line); border-radius: 6px; }
+#sigPad { display: block; width: 100%; height: 180px; touch-action: none; cursor: crosshair; }
+.pad-line { position: absolute; left: 24px; right: 24px; bottom: 40px; border-bottom: 1px solid #b9c3cb; pointer-events: none; }
+.pad-hint { position: absolute; left: 24px; bottom: 16px; font-size: 12px; color: #7d8891; pointer-events: none; }
+.styles { display: grid; grid-template-columns: 1fr; gap: 6px; }
+.styles label { display: flex; align-items: center; gap: 10px; padding: 6px 12px; background: var(--paper); color: #1b2a4a; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; min-height: 56px; overflow: hidden; }
+.styles label:has(input:checked) { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.styles span { font-size: 30px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.saved-box { background: var(--paper); border: 1px solid var(--line); border-radius: 6px; padding: 16px; display: grid; place-items: center; min-height: 120px; }
+.saved-box img { max-height: 90px; }
+.opts { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 13px; }
+.opts label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; align-items: center; }
+.actions .left { margin-right: auto; }
+#sigErr { color: var(--warn); font-size: 12px; }
+button.ghost { border-color: var(--line); }
+</style>
+
+<div class="bar">
+  <div class="row file">
+    <span class="brand">Docx Desk</span>
+    <input id="docName" value="Sample - project proposal" aria-label="File name">
+    <span class="ext">.docx</span>
+    <label class="btn" title="Open a .docx file"><svg class="i" viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3z"/></svg>Open<input id="openFile" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"></label>
+    <button id="newDoc" title="Start a blank document">New</button>
+    <button id="saveDoc" class="primary" title="Save as .docx (Ctrl+S)"><svg class="i" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>Save .docx</button>
+  </div>
+  <div class="row" role="toolbar" aria-label="Formatting">
+    <button id="undo" title="Undo (Ctrl+Z)"><svg class="i" viewBox="0 0 24 24"><path d="M9 7L4 12l5 5M4 12h11a5 5 0 010 10h-3"/></svg></button>
+    <button id="redo" title="Redo (Ctrl+Y)"><svg class="i" viewBox="0 0 24 24"><path d="M15 7l5 5-5 5M20 12H9a5 5 0 000 10h3"/></svg></button>
+    <span class="sep"></span>
+    <select id="blockStyle" aria-label="Paragraph style">
+      <option value="p">Normal</option><option value="h1">Heading 1</option><option value="h2">Heading 2</option><option value="h3">Heading 3</option><option value="blockquote">Quote</option>
+    </select>
+    <span class="sep"></span>
+    <button data-cmd="bold" title="Bold (Ctrl+B)" aria-pressed="false" class="k"><b>B</b></button>
+    <button data-cmd="italic" title="Italic (Ctrl+I)" aria-pressed="false" class="k"><i>I</i></button>
+    <button data-cmd="underline" title="Underline (Ctrl+U)" aria-pressed="false" class="k"><u>U</u></button>
+    <button data-cmd="strikeThrough" title="Strikethrough" aria-pressed="false" class="k"><s>S</s></button>
+    <span class="sep"></span>
+    <button data-cmd="insertUnorderedList" title="Bulleted list" aria-pressed="false"><svg class="i" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></svg></button>
+    <button data-cmd="insertOrderedList" title="Numbered list" aria-pressed="false"><svg class="i" viewBox="0 0 24 24"><path d="M10 6h10M10 12h10M10 18h10M4 5l1.5-1v5M3.5 14.5c0-1 2.5-1.5 2.5 0 0 1-2.5 2-2.5 3.5H6"/></svg></button>
+    <button data-cmd="outdent" title="Decrease indent"><svg class="i" viewBox="0 0 24 24"><path d="M11 6h9M11 12h9M11 18h9M7 9l-3 3 3 3"/></svg></button>
+    <button data-cmd="indent" title="Increase indent"><svg class="i" viewBox="0 0 24 24"><path d="M11 6h9M11 12h9M11 18h9M4 9l3 3-3 3"/></svg></button>
+    <span class="sep"></span>
+    <button data-cmd="justifyLeft" title="Align left" aria-pressed="false"><svg class="i" viewBox="0 0 24 24"><path d="M4 6h16M4 10h10M4 14h16M4 18h10"/></svg></button>
+    <button data-cmd="justifyCenter" title="Center" aria-pressed="false"><svg class="i" viewBox="0 0 24 24"><path d="M4 6h16M7 10h10M4 14h16M7 18h10"/></svg></button>
+    <button data-cmd="justifyRight" title="Align right" aria-pressed="false"><svg class="i" viewBox="0 0 24 24"><path d="M4 6h16M10 10h10M4 14h16M10 18h10"/></svg></button>
+    <span class="sep"></span>
+    <button id="linkBtn" title="Add link to selection"><svg class="i" viewBox="0 0 24 24"><path d="M10 14a4 4 0 006 0l3-3a4 4 0 00-6-6l-1 1M14 10a4 4 0 00-6 0l-3 3a4 4 0 006 6l1-1"/></svg></button>
+    <label class="btn" title="Insert image"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="1"/><path d="M3 16l5-5 4 4 3-3 6 6"/></svg><input id="imgFile" type="file" accept="image/png,image/jpeg,image/gif,image/webp"></label>
+    <button id="tableBtn" title="Insert 3×3 table"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14"/><path d="M3 10h18M3 15h18M9 5v14M15 5v14"/></svg></button>
+    <button data-cmd="removeFormat" title="Clear formatting"><svg class="i" viewBox="0 0 24 24"><path d="M6 5h12M12 5l-3 14M4 20l16-16"/></svg></button>
+    <span class="sep"></span>
+    <button id="signBtn" title="Sign at the cursor"><svg class="i" viewBox="0 0 24 24"><path d="M3 17c3-6 5-9 6-8s-2 7 0 7 3-4 4-4 0 3 2 3 3-2 6-2M3 21h18"/></svg>Sign</button>
+    <button id="findToggle" title="Find and replace (Ctrl+F)" aria-pressed="false"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg>Find</button>
+  </div>
+  <div class="find" id="findBar" hidden>
+    <input id="findText" placeholder="Find" aria-label="Find">
+    <input id="replText" placeholder="Replace with" aria-label="Replace with">
+    <button id="findBtn">Highlight</button>
+    <button id="replAllBtn">Replace all</button>
+    <span id="findMsg"></span>
+  </div>
+</div>
+
+<main>
+  <div class="sheet">
+    <div id="editor" contenteditable="true" spellcheck="true" aria-label="Document"></div>
+  </div>
+</main>
+
+<div class="scrim" id="sigScrim" hidden>
+  <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="sigTitle">
+    <h2 id="sigTitle">Add your signature</h2>
+    <label class="field">Full name
+      <input type="text" id="sigName" autocomplete="name" placeholder="Your full name">
+    </label>
+    <div class="tabs" role="tablist">
+      <button role="tab" id="tabDraw" aria-selected="true" data-mode="draw">Draw</button>
+      <button role="tab" id="tabType" aria-selected="false" data-mode="type">Type</button>
+      <button role="tab" id="tabSaved" aria-selected="false" data-mode="saved" hidden>Saved</button>
+    </div>
+    <div id="paneDraw">
+      <div class="pad-wrap">
+        <canvas id="sigPad" aria-label="Signature drawing area"></canvas>
+        <div class="pad-line"></div>
+        <div class="pad-hint">Sign above the line</div>
+      </div>
+    </div>
+    <div id="paneType" hidden>
+      <div class="styles" id="sigStyles">
+        <label><input type="radio" name="sigFont" id="font1" value="Homemade Apple" checked><span style="font-family:'Homemade Apple',cursive">Your Name</span></label>
+        <label><input type="radio" name="sigFont" id="font2" value="Mrs Saint Delafield"><span style="font-family:'Mrs Saint Delafield',cursive;font-size:40px">Your Name</span></label>
+        <label><input type="radio" name="sigFont" id="font3" value="Caveat"><span style="font-family:'Caveat',cursive;font-size:36px">Your Name</span></label>
+      </div>
+    </div>
+    <div id="paneSaved" hidden>
+      <div class="saved-box"><img id="savedImg" alt="Your saved signature"></div>
+    </div>
+    <div class="opts">
+      <label><input type="checkbox" id="optName" checked> Printed name below</label>
+      <label><input type="checkbox" id="optDate" checked> Today's date</label>
+      <label><input type="checkbox" id="optRemember" checked> Remember on this device</label>
+    </div>
+    <div class="actions">
+      <button id="sigClear" class="ghost left">Clear</button>
+      <span id="sigErr"></span>
+      <button id="sigCancel" class="ghost">Cancel</button>
+      <button id="sigInsert" class="primary">Insert signature</button>
+    </div>
+  </div>
+</div>
+
+<div class="status">
+  <span id="words">0 words</span>
+  <span id="chars">0 characters</span>
+  <span id="msg">Example document loaded. Open your own .docx to edit it.</span>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"></script>
+<script>
+(function () {
+  const ed = document.getElementById("editor");
+  const $ = (id) => document.getElementById(id);
+  const msgEl = $("msg");
+  const say = (t, warn) => { msgEl.textContent = t; msgEl.className = warn ? "warn" : ""; };
+
+  const SAMPLE = `<h1>Project Proposal: Inventory Sync Service</h1>
+<p><i>Example document. Open your own .docx with the Open button, or edit this one.</i></p>
+<h2>Summary</h2>
+<p>This proposal covers a <b>two-phase build</b> of a service that keeps stock levels in sync between the online store and the warehouse database. Phase one ships a nightly reconciliation job; phase two adds near-real-time updates.</p>
+<h2>Deliverables</h2>
+<ul><li>Reconciliation job with a daily mismatch report</li><li>Webhook listener for order and refund events</li><li>Admin page showing sync status and the last 50 changes</li></ul>
+<h2>Timeline</h2>
+<ol><li>Discovery and schema review (week 1)</li><li>Phase one build and testing (weeks 2–3)</li><li>Phase two build and handover (weeks 4–6)</li></ol>
+<table><tbody><tr><th>Phase</th><th>Duration</th><th>Estimate</th></tr><tr><td>Discovery</td><td>1 week</td><td>$2,400</td></tr><tr><td>Phase one</td><td>2 weeks</td><td>$5,600</td></tr><tr><td>Phase two</td><td>3 weeks</td><td>$8,100</td></tr></tbody></table>
+<blockquote>All estimates assume read access to the existing warehouse database from day one.</blockquote>
+<p>Questions can go to the contact listed on the cover page.</p>`;
+
+  /* ---------- draft persistence (per browser only) ---------- */
+  const DRAFT_KEY = "docx-desk-draft";
+  function saveDraft() { try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ name: $("docName").value, html: ed.innerHTML })); } catch (e) {} }
+  function loadDraft() { try { const d = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null"); if (d && d.html) return d; } catch (e) {} return null; }
+
+  const draft = loadDraft();
+  if (draft) { ed.innerHTML = draft.html; $("docName").value = draft.name || "Untitled"; say("Restored your last draft from this browser."); }
+  else ed.innerHTML = SAMPLE;
+
+  try { document.execCommand("styleWithCSS", false, false); document.execCommand("defaultParagraphSeparator", false, "p"); } catch (e) {}
+
+  /* ---------- counts ---------- */
+  let draftTimer;
+  function updateCounts() {
+    const t = ed.innerText.replace(/ /g, " ");
+    const w = (t.match(/\S+/g) || []).length;
+    $("words").textContent = w.toLocaleString() + (w === 1 ? " word" : " words");
+    $("chars").textContent = t.replace(/\n/g, "").length.toLocaleString() + " characters";
+    clearTimeout(draftTimer); draftTimer = setTimeout(saveDraft, 600);
+  }
+  ed.addEventListener("input", updateCounts);
+  $("docName").addEventListener("input", updateCounts);
+  updateCounts();
+
+  /* ---------- toolbar ---------- */
+  const exec = (cmd, val) => { ed.focus(); document.execCommand(cmd, false, val); refreshState(); updateCounts(); };
+  document.querySelectorAll("[data-cmd]").forEach((b) => b.addEventListener("mousedown", (e) => { e.preventDefault(); exec(b.dataset.cmd); }));
+  $("undo").addEventListener("mousedown", (e) => { e.preventDefault(); exec("undo"); });
+  $("redo").addEventListener("mousedown", (e) => { e.preventDefault(); exec("redo"); });
+  $("blockStyle").addEventListener("change", (e) => { exec("formatBlock", "<" + e.target.value + ">"); });
+
+  function refreshState() {
+    document.querySelectorAll("button[aria-pressed][data-cmd]").forEach((b) => {
+      let on = false; try { on = document.queryCommandState(b.dataset.cmd); } catch (e) {}
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    const sel = window.getSelection();
+    if (!sel.rangeCount || !ed.contains(sel.anchorNode)) return;
+    let n = sel.anchorNode.nodeType === 3 ? sel.anchorNode.parentNode : sel.anchorNode;
+    let tag = "p";
+    while (n && n !== ed) { const t = n.nodeName.toLowerCase(); if (["h1", "h2", "h3", "blockquote"].includes(t)) { tag = t; break; } n = n.parentNode; }
+    $("blockStyle").value = tag;
+  }
+  document.addEventListener("selectionchange", refreshState);
+
+  // Links: inline prompt via find bar would be clumsy; use a tiny inline field instead of window.prompt (blocked in the viewer).
+  let savedRange = null;
+  $("linkBtn").addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    const sel = window.getSelection();
+    if (!sel.rangeCount || sel.isCollapsed || !ed.contains(sel.anchorNode)) { say("Select some text first, then add a link.", true); return; }
+    savedRange = sel.getRangeAt(0).cloneRange();
+    showLinkField();
+  });
+  function showLinkField() {
+    let box = $("linkBox");
+    if (!box) {
+      box = document.createElement("div"); box.id = "linkBox"; box.className = "find";
+      box.innerHTML = '<input id="linkUrl" placeholder="https://example.com" aria-label="Link address"><button id="linkOk" class="primary">Add link</button><button id="linkCancel">Cancel</button>';
+      document.querySelector(".bar").appendChild(box);
+      $("linkCancel").onclick = () => { box.hidden = true; };
+      const apply = () => {
+        let url = $("linkUrl").value.trim(); if (!url) return;
+        if (!/^[a-z]+:/i.test(url)) url = "https://" + url;
+        const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(savedRange);
+        exec("createLink", url); box.hidden = true; say("Link added.");
+      };
+      $("linkOk").onclick = apply;
+      $("linkUrl").addEventListener("keydown", (e) => { if (e.key === "Enter") apply(); if (e.key === "Escape") box.hidden = true; });
+    }
+    box.hidden = false; $("linkUrl").value = ""; $("linkUrl").focus();
+  }
+
+  $("imgFile").addEventListener("change", (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    const r = new FileReader();
+    r.onload = () => { exec("insertHTML", '<img src="' + r.result + '" alt="">'); say("Image inserted."); };
+    r.readAsDataURL(f); e.target.value = "";
+  });
+  $("tableBtn").addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    const cell = "<td><br></td>";
+    exec("insertHTML", "<table><tbody>" + ("<tr>" + cell.repeat(3) + "</tr>").repeat(3) + "</tbody></table><p><br></p>");
+  });
+
+  /* ---------- find & replace ---------- */
+  $("findToggle").addEventListener("click", () => toggleFind());
+  function toggleFind(force) {
+    const bar = $("findBar"); const show = force ?? bar.hidden;
+    bar.hidden = !show; $("findToggle").setAttribute("aria-pressed", show ? "true" : "false");
+    if (show) $("findText").focus(); else clearHits();
+  }
+  function clearHits() { ed.querySelectorAll("mark.hit").forEach((m) => m.replaceWith(...m.childNodes)); ed.normalize(); }
+  function textNodes() { const w = document.createTreeWalker(ed, NodeFilter.SHOW_TEXT); const out = []; while (w.nextNode()) out.push(w.currentNode); return out; }
+  function eachMatch(q, fn) {
+    let count = 0; const ql = q.toLowerCase();
+    textNodes().forEach((node) => {
+      let i; let cur = node;
+      while (cur && (i = cur.data.toLowerCase().indexOf(ql)) !== -1) {
+        const match = cur.splitText(i); const rest = match.splitText(q.length);
+        fn(match); count++; cur = rest;
+      }
+    });
+    return count;
+  }
+  $("findBtn").addEventListener("click", () => {
+    clearHits(); const q = $("findText").value; if (!q) return;
+    const n = eachMatch(q, (m) => { const mk = document.createElement("mark"); mk.className = "hit"; m.replaceWith(mk); mk.appendChild(m); });
+    $("findMsg").textContent = n ? n + " found" : "No matches";
+    const first = ed.querySelector("mark.hit"); if (first) first.scrollIntoView({ block: "center" });
+  });
+  $("findText").addEventListener("keydown", (e) => { if (e.key === "Enter") $("findBtn").click(); });
+  $("replAllBtn").addEventListener("click", () => {
+    clearHits(); const q = $("findText").value; if (!q) return; const r = $("replText").value;
+    const n = eachMatch(q, (m) => { m.data = r; });
+    ed.normalize(); updateCounts();
+    $("findMsg").textContent = n ? "Replaced " + n : "No matches";
+  });
+
+  /* ---------- open .docx ---------- */
+  async function openDocx(file) {
+    if (!/\.docx$/i.test(file.name)) { say("That isn't a .docx file. Older .doc files need to be re-saved as .docx in Word first.", true); return; }
+    if (!window.mammoth) { say("The document reader didn't load. Check your connection and reload the page.", true); return; }
+    say("Opening " + file.name + "…");
+    try {
+      const buf = await file.arrayBuffer();
+      const res = await mammoth.convertToHtml({ arrayBuffer: buf }, {
+        styleMap: ["u => u", "strike => s", "p[style-name='Quote'] => blockquote:fresh", "p[style-name='Intense Quote'] => blockquote:fresh", "p[style-name='Title'] => h1:fresh", "p[style-name='Subtitle'] => h2:fresh"],
+        convertImage: mammoth.images.imgElement((img) => img.read("base64").then((d) => ({ src: "data:" + img.contentType + ";base64," + d })))
+      });
+      ed.innerHTML = res.value || "<p><br></p>";
+      $("docName").value = file.name.replace(/\.docx$/i, "");
+      updateCounts(); saveDraft();
+      const lost = res.messages.filter((m) => m.type === "warning").length;
+      say(lost ? "Opened. Some formatting (fonts, colors, headers, page layout) isn't carried over." : "Opened " + file.name + ".");
+    } catch (err) {
+      say("Couldn't read that file. It may be damaged or password-protected.", true);
+    }
+  }
+  $("openFile").addEventListener("change", (e) => { const f = e.target.files[0]; if (f) openDocx(f); e.target.value = ""; });
+  let dragDepth = 0;
+  window.addEventListener("dragenter", (e) => { if ([...(e.dataTransfer?.types || [])].includes("Files")) { dragDepth++; document.body.classList.add("drop"); } });
+  window.addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; document.body.classList.remove("drop"); } });
+  window.addEventListener("dragover", (e) => e.preventDefault());
+  window.addEventListener("drop", (e) => {
+    e.preventDefault(); dragDepth = 0; document.body.classList.remove("drop");
+    const f = e.dataTransfer.files[0]; if (f) openDocx(f);
+  });
+
+  $("newDoc").addEventListener("click", () => {
+    if ($("newDoc").dataset.armed !== "1") {
+      $("newDoc").dataset.armed = "1"; $("newDoc").textContent = "Clear page?";
+      say("Click again to clear the page. Save first if you want to keep it.", true);
+      setTimeout(() => { $("newDoc").dataset.armed = ""; $("newDoc").textContent = "New"; }, 4000);
+      return;
+    }
+    $("newDoc").dataset.armed = ""; $("newDoc").textContent = "New";
+    ed.innerHTML = "<p><br></p>"; $("docName").value = "Untitled"; updateCounts(); ed.focus(); say("Blank document.");
+  });
+
+  /* ---------- HTML → .docx ---------- */
+  async function toPng(src) {
+    return new Promise((resolve) => {
+      const im = new Image();
+      im.onload = () => {
+        const w = im.naturalWidth || 1, h = im.naturalHeight || 1;
+        const c = document.createElement("canvas"); c.width = w; c.height = h;
+        c.getContext("2d").drawImage(im, 0, 0);
+        try { resolve({ data: c.toDataURL("image/png"), w, h }); } catch (e) { resolve(null); }
+      };
+      im.onerror = () => resolve(null);
+      im.src = src;
+    });
+  }
+
+  function buildDocument(root, images) {
+    const D = window.docx;
+    const BLOCK = new Set(["P", "DIV", "H1", "H2", "H3", "H4", "H5", "H6", "BLOCKQUOTE", "UL", "OL", "TABLE", "PRE", "HR"]);
+    let olInstance = 0;
+    const MAX_W = 620; // ~6.5in printable width at 96 dpi
+
+    function alignOf(el) {
+      const a = (el.style && el.style.textAlign) || el.getAttribute?.("align") || "";
+      return { center: D.AlignmentType.CENTER, right: D.AlignmentType.RIGHT, justify: D.AlignmentType.JUSTIFIED }[a.toLowerCase()];
+    }
+
+    function runs(node, fmt, out) {
+      if (node.nodeType === 3) {
+        const t = node.data.replace(/\s+/g, " ");
+        if (t) out.push(new D.TextRun({ text: t, ...fmt }));
+        return out;
+      }
+      if (node.nodeType !== 1) return out;
+      const tag = node.nodeName;
+      if (BLOCK.has(tag)) return out;
+      if (tag === "BR") { out.push(new D.TextRun({ text: "", break: 1 })); return out; }
+      if (tag === "IMG") {
+        const im = images.get(node);
+        if (im) {
+          const dw = +node.getAttribute("width") || im.w;
+          const dh = +node.getAttribute("height") || im.h * (dw / im.w);
+          const s = Math.min(1, MAX_W / dw);
+          out.push(new D.ImageRun({ data: im.data, transformation: { width: dw * s, height: dh * s } }));
+        }
+        return out;
+      }
+      const f = { ...fmt };
+      const st = node.style || {};
+      if (tag === "B" || tag === "STRONG" || /^(bold|[6-9]00)$/.test(st.fontWeight || "")) f.bold = true;
+      if (tag === "I" || tag === "EM" || st.fontStyle === "italic") f.italics = true;
+      if (tag === "U" || /underline/.test(st.textDecoration || "")) f.underline = {};
+      if (tag === "S" || tag === "STRIKE" || tag === "DEL" || /line-through/.test(st.textDecoration || "")) f.strike = true;
+      if (tag === "SUP") f.superScript = true;
+      if (tag === "SUB") f.subScript = true;
+      if (tag === "CODE") f.font = "Consolas";
+      if (tag === "A" && node.getAttribute("href") && !node.getAttribute("href").startsWith("#")) {
+        const kids = []; node.childNodes.forEach((c) => runs(c, { ...f, style: "Hyperlink" }, kids));
+        if (kids.length) out.push(new D.ExternalHyperlink({ link: node.getAttribute("href"), children: kids }));
+        return out;
+      }
+      node.childNodes.forEach((c) => runs(c, f, out));
+      return out;
+    }
+
+    function para(el, opts = {}, fmt = {}) {
+      const ch = []; el.childNodes.forEach((c) => runs(c, fmt, ch));
+      return new D.Paragraph({ children: ch, alignment: alignOf(el), ...opts });
+    }
+
+    // Splits a container with mixed inline + block children into paragraphs.
+    function blocks(container, ctx, out) {
+      let inline = [];
+      const flush = () => {
+        if (!inline.length) return;
+        const ch = []; inline.forEach((n) => runs(n, ctx.fmt || {}, ch));
+        const hasContent = inline.some((n) => (n.textContent || "").trim() || n.nodeName === "IMG" || (n.querySelector && n.querySelector("img")));
+        if (hasContent) out.push(new D.Paragraph({ children: ch, ...(ctx.para || {}) }));
+        inline = [];
+      };
+      container.childNodes.forEach((n) => {
+        if (n.nodeType === 1 && BLOCK.has(n.nodeName)) { flush(); block(n, ctx, out); }
+        else inline.push(n);
+      });
+      flush();
+      return out;
+    }
+
+    function block(el, ctx, out) {
+      const tag = el.nodeName;
+      const H = { H1: D.HeadingLevel.HEADING_1, H2: D.HeadingLevel.HEADING_2, H3: D.HeadingLevel.HEADING_3, H4: D.HeadingLevel.HEADING_4, H5: D.HeadingLevel.HEADING_5, H6: D.HeadingLevel.HEADING_6 };
+      if (H[tag]) { out.push(para(el, { heading: H[tag] })); return; }
+      if (tag === "BLOCKQUOTE") { blocks(el, { ...ctx, para: { indent: { left: 720 } }, fmt: { italics: true } }, out); return; }
+      if (tag === "HR") { out.push(new D.Paragraph({ border: { bottom: { style: D.BorderStyle.SINGLE, size: 6, color: "999999", space: 1 } } })); return; }
+      if (tag === "PRE") { el.textContent.split("\n").forEach((line) => out.push(new D.Paragraph({ children: [new D.TextRun({ text: line, font: "Consolas" })] }))); return; }
+      if (tag === "UL" || tag === "OL") { list(el, (ctx.level ?? -1) + 1, out); return; }
+      if (tag === "TABLE") { out.push(table(el)); out.push(new D.Paragraph({})); return; }
+      // P / DIV
+      if (tag === "DIV" && [...el.children].some((c) => BLOCK.has(c.nodeName))) { blocks(el, ctx, out); return; }
+      out.push(para(el, { ...(ctx.para || {}) }, ctx.fmt || {}));
+    }
+
+    function list(el, level, out) {
+      level = Math.min(level, 8);
+      const ordered = el.nodeName === "OL";
+      const inst = ordered ? ++olInstance : 0;
+      [...el.children].forEach((li) => {
+        if (li.nodeName !== "LI") { block(li, { level: level - 1 }, out); return; }
+        const listOpt = ordered ? { numbering: { reference: "ol", level, instance: inst } } : { bullet: { level } };
+        let first = true;
+        let inline = [];
+        const flush = () => {
+          const ch = []; inline.forEach((n) => runs(n, {}, ch));
+          if (first || ch.length) out.push(new D.Paragraph({ children: ch, alignment: alignOf(li), ...(first ? listOpt : { indent: { left: 720 * (level + 1) } }) }));
+          first = false; inline = [];
+        };
+        li.childNodes.forEach((n) => {
+          if (n.nodeType === 1 && (n.nodeName === "UL" || n.nodeName === "OL")) { flush(); list(n, level + 1, out); }
+          else if (n.nodeType === 1 && n.nodeName === "P") { inline.push(...n.childNodes); }
+          else inline.push(n);
+        });
+        if (inline.length || first) flush();
+      });
+    }
+
+    function table(el) {
+      const rows = [...el.querySelectorAll(":scope > tr, :scope > thead > tr, :scope > tbody > tr, :scope > tfoot > tr")];
+      return new D.Table({
+        width: { size: 100, type: D.WidthType.PERCENTAGE },
+        rows: rows.map((tr) => new D.TableRow({
+          children: [...tr.children].filter((c) => c.nodeName === "TD" || c.nodeName === "TH").map((cell) => {
+            const ps = blocks(cell, { fmt: cell.nodeName === "TH" ? { bold: true } : {} }, []);
+            return new D.TableCell({
+              children: ps.length ? ps : [new D.Paragraph({})],
+              columnSpan: +cell.getAttribute("colspan") || undefined,
+              rowSpan: +cell.getAttribute("rowspan") || undefined,
+              shading: cell.nodeName === "TH" ? { fill: "EEF2F4", type: D.ShadingType.CLEAR, color: "auto" } : undefined,
+              margins: { top: 60, bottom: 60, left: 100, right: 100 }
+            });
+          })
+        }))
+      });
+    }
+
+    const children = blocks(root, {}, []);
+    if (!children.length) children.push(new D.Paragraph({}));
+
+    const fmts = [D.LevelFormat.DECIMAL, D.LevelFormat.LOWER_LETTER, D.LevelFormat.LOWER_ROMAN];
+    return new D.Document({
+      creator: "Docx Desk",
+      title: $("docName").value,
+      styles: {
+        default: { document: { run: { font: "Calibri", size: 22 }, paragraph: { spacing: { after: 160, line: 276 } } } },
+        paragraphStyles: [
+          { id: "Heading1", name: "Heading 1", basedOn: "Normal", next: "Normal", quickFormat: true, run: { size: 40, bold: true, color: "1F3A4D" }, paragraph: { spacing: { before: 240, after: 120 } } },
+          { id: "Heading2", name: "Heading 2", basedOn: "Normal", next: "Normal", quickFormat: true, run: { size: 30, bold: true, color: "1F3A4D" }, paragraph: { spacing: { before: 240, after: 80 } } },
+          { id: "Heading3", name: "Heading 3", basedOn: "Normal", next: "Normal", quickFormat: true, run: { size: 25, bold: true, color: "1F3A4D" }, paragraph: { spacing: { before: 200, after: 60 } } }
+        ],
+        characterStyles: [{ id: "Hyperlink", name: "Hyperlink", basedOn: "DefaultParagraphFont", run: { color: "1F5A78", underline: { type: D.UnderlineType.SINGLE } } }]
+      },
+      numbering: {
+        config: [{
+          reference: "ol",
+          levels: Array.from({ length: 9 }, (_, i) => ({
+            level: i, format: fmts[i % 3], text: "%" + (i + 1) + ".", alignment: D.AlignmentType.START,
+            style: { paragraph: { indent: { left: 720 * (i + 1), hanging: 360 } } }
+          }))
+        }]
+      },
+      sections: [{ properties: { page: { margin: { top: 1440, bottom: 1440, left: 1440, right: 1440 } } }, children }]
+    });
+  }
+
+  let downloadsP = null;
+  if (window.claude && window.claude.use) downloadsP = window.claude.use("downloads").catch(() => null);
+
+  async function saveDocx() {
+    if (!window.docx) { say("The .docx writer didn't load. Check your connection and reload the page.", true); return; }
+    clearHits();
+    say("Building .docx…");
+    try {
+      const images = new Map();
+      for (const img of ed.querySelectorAll("img")) { const p = await toPng(img.src); if (p) images.set(img, p); }
+      const doc = buildDocument(ed, images);
+      const blob = await window.docx.Packer.toBlob(doc);
+      const name = ($("docName").value.trim() || "Untitled").replace(/[\\/:*?"<>|]+/g, "-") + ".docx";
+      const downloads = downloadsP ? await downloadsP : null;
+      if (downloads) {
+        try { await downloads.save({ filename: name, data: blob }); say("Saved " + name + "."); }
+        catch (err) {
+          const c = err && err.code;
+          if (c === "declined") say("Save cancelled.");
+          else if (c === "rate_limited") say("A save prompt is already open. Finish that one first.", true);
+          else say("Saving isn't available in this view.", true);
+        }
+      } else {
+        const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
+        document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+        say("Saved " + name + ".");
+      }
+    } catch (err) {
+      console.error(err); say("Couldn't build the .docx: " + (err && err.message ? err.message : "unknown error"), true);
+    }
+  }
+  $("saveDoc").addEventListener("click", saveDocx);
+
+  document.addEventListener("keydown", (e) => {
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); saveDocx(); }
+    if (mod && e.key.toLowerCase() === "f") { e.preventDefault(); toggleFind(true); }
+    if (e.key === "Escape" && !$("findBar").hidden) toggleFind(false);
+  });
+
+  /* ---------- signatures ---------- */
+  const SIG_KEY = "docx-desk-signature";
+  const INK = "#1b2a4a";
+  const pad = $("sigPad"), pctx = pad.getContext("2d");
+  let sigMode = "draw", sigRange = null, hasInk = false, saved = null;
+  try { saved = JSON.parse(localStorage.getItem(SIG_KEY) || "null"); } catch (e) {}
+  if (saved && saved.name) $("sigName").value = saved.name;
+
+  function setMode(m) {
+    sigMode = m;
+    ["draw", "type", "saved"].forEach((k) => {
+      const tab = $("tab" + k[0].toUpperCase() + k.slice(1));
+      tab.setAttribute("aria-selected", k === m ? "true" : "false");
+      $("pane" + k[0].toUpperCase() + k.slice(1)).hidden = k !== m;
+    });
+    $("sigClear").hidden = m !== "draw";
+    $("sigErr").textContent = "";
+    if (m === "draw") sizePad();
+  }
+  document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
+
+  function sizePad() {
+    const dpr = Math.max(2, window.devicePixelRatio || 1);
+    const w = pad.clientWidth, h = pad.clientHeight;
+    if (!w) return;
+    if (pad.width !== Math.round(w * dpr)) {
+      pad.width = Math.round(w * dpr); pad.height = Math.round(h * dpr); hasInk = false;
+    }
+    pctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    pctx.lineCap = "round"; pctx.lineJoin = "round"; pctx.strokeStyle = INK; pctx.lineWidth = 2.4;
+  }
+  function clearPad() { pctx.save(); pctx.setTransform(1, 0, 0, 1, 0, 0); pctx.clearRect(0, 0, pad.width, pad.height); pctx.restore(); hasInk = false; }
+  $("sigClear").addEventListener("click", clearPad);
+
+  let pts = null;
+  const pos = (e) => { const r = pad.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+  pad.addEventListener("pointerdown", (e) => {
+    e.preventDefault(); pad.setPointerCapture(e.pointerId);
+    pts = [pos(e)];
+    pctx.beginPath(); pctx.arc(pts[0].x, pts[0].y, 1.2, 0, Math.PI * 2); pctx.fillStyle = INK; pctx.fill();
+    hasInk = true; $("sigErr").textContent = "";
+  });
+  pad.addEventListener("pointermove", (e) => {
+    if (!pts) return;
+    const p = pos(e); pts.push(p);
+    if (pts.length < 3) return;
+    const [a, b, c] = pts.slice(-3);
+    pctx.beginPath();
+    pctx.moveTo((a.x + b.x) / 2, (a.y + b.y) / 2);
+    pctx.quadraticCurveTo(b.x, b.y, (b.x + c.x) / 2, (b.y + c.y) / 2);
+    pctx.stroke();
+  });
+  ["pointerup", "pointercancel", "pointerleave"].forEach((t) => pad.addEventListener(t, () => { pts = null; }));
+
+  // Crop a canvas to its inked area; returns {src, w, h} where w/h are display size in px.
+  function trim(cv, scale, targetH) {
+    const c = cv.getContext("2d"), { width: W, height: H } = cv;
+    const d = c.getImageData(0, 0, W, H).data;
+    let x0 = W, y0 = H, x1 = -1, y1 = -1;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (d[(y * W + x) * 4 + 3] > 8) {
+      if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+    }
+    if (x1 < 0) return null;
+    const m = Math.round(4 * scale);
+    x0 = Math.max(0, x0 - m); y0 = Math.max(0, y0 - m); x1 = Math.min(W - 1, x1 + m); y1 = Math.min(H - 1, y1 + m);
+    const out = document.createElement("canvas"); out.width = x1 - x0 + 1; out.height = y1 - y0 + 1;
+    out.getContext("2d").drawImage(cv, x0, y0, out.width, out.height, 0, 0, out.width, out.height);
+    let w = out.width / scale, h = out.height / scale;
+    const k = Math.min(targetH / h, 240 / w, 1.6);
+    return { src: out.toDataURL("image/png"), w: Math.round(w * k), h: Math.round(h * k) };
+  }
+
+  async function typedSignature() {
+    const name = $("sigName").value.trim();
+    if (!name) return null;
+    const font = document.querySelector("input[name=sigFont]:checked").value;
+    const size = font === "Mrs Saint Delafield" ? 120 : font === "Caveat" ? 110 : 84;
+    try { await document.fonts.load(size + "px '" + font + "'", name); } catch (e) {}
+    const cv = document.createElement("canvas"); const c = cv.getContext("2d");
+    c.font = size + "px '" + font + "', cursive";
+    cv.width = Math.ceil(c.measureText(name).width + size * 1.2); cv.height = Math.ceil(size * 2.2);
+    c.font = size + "px '" + font + "', cursive"; c.fillStyle = INK; c.textBaseline = "middle";
+    c.fillText(name, size * 0.6, cv.height / 2);
+    return trim(cv, 2, 52);
+  }
+
+  function updateStylePreviews() {
+    const n = $("sigName").value.trim() || "Your Name";
+    document.querySelectorAll("#sigStyles span").forEach((s) => { s.textContent = n; });
+  }
+  $("sigName").addEventListener("input", updateStylePreviews);
+
+  function openSign() {
+    const sel = window.getSelection();
+    if (sel.rangeCount && ed.contains(sel.getRangeAt(0).commonAncestorContainer)) sigRange = sel.getRangeAt(0).cloneRange();
+    else { sigRange = document.createRange(); sigRange.selectNodeContents(ed); sigRange.collapse(false); }
+    $("tabSaved").hidden = !(saved && saved.src);
+    if (saved && saved.src) $("savedImg").src = saved.src;
+    updateStylePreviews();
+    $("sigScrim").hidden = false;
+    setMode(saved && saved.src ? "saved" : "draw");
+    clearPad();
+    (saved && saved.name ? $("tab" + (saved && saved.src ? "Saved" : "Draw")) : $("sigName")).focus();
+  }
+  function closeSign() { $("sigScrim").hidden = true; }
+  $("signBtn").addEventListener("mousedown", (e) => { e.preventDefault(); openSign(); });
+  $("sigCancel").addEventListener("click", closeSign);
+  $("sigScrim").addEventListener("mousedown", (e) => { if (e.target === $("sigScrim")) closeSign(); });
+  window.addEventListener("resize", () => { if (!$("sigScrim").hidden && sigMode === "draw") sizePad(); });
+
+  const esc = (s) => s.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+
+  $("sigInsert").addEventListener("click", async () => {
+    const name = $("sigName").value.trim();
+    let sig = null;
+    if (sigMode === "draw") {
+      if (!hasInk) { $("sigErr").textContent = "Draw your signature in the box first."; return; }
+      sig = trim(pad, pad.width / pad.clientWidth, 56);
+    } else if (sigMode === "type") {
+      if (!name) { $("sigErr").textContent = "Type your name above first."; $("sigName").focus(); return; }
+      sig = await typedSignature();
+    } else sig = saved;
+    if (!sig) { $("sigErr").textContent = "That signature came out empty. Try again."; return; }
+    if ($("optName").checked && !name) { $("sigErr").textContent = "Type your name, or untick Printed name."; $("sigName").focus(); return; }
+
+    if ($("optRemember").checked) {
+      saved = { src: sig.src, w: sig.w, h: sig.h, name };
+      try { localStorage.setItem(SIG_KEY, JSON.stringify(saved)); } catch (e) {}
+    } else if (name && saved) { saved.name = name; }
+
+    const date = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+    const lines = [];
+    if ($("optName").checked) lines.push(esc(name));
+    if ($("optDate").checked) lines.push("Date: " + date);
+    const html = '<p><img src="' + sig.src + '" width="' + sig.w + '" height="' + sig.h + '" alt="Signature"></p>' +
+      (lines.length ? "<p>" + lines.join("<br>") + "</p>" : "") + "<p><br></p>";
+
+    closeSign();
+    ed.focus();
+    const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(sigRange);
+    document.execCommand("insertHTML", false, html);
+    updateCounts(); saveDraft();
+    say("Signature added. Save .docx to keep it in the file.");
+  });
+
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("sigScrim").hidden) closeSign(); });
+
+  window.__docxDesk = { buildDocument };
+})();
+</script>
+
+</body>
+</html>
