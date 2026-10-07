@@ -89,6 +89,21 @@ main { flex: 1; overflow: auto; padding-block: 28px 40px; padding-inline: 16px; 
 .drop::after { content: "Drop a .docx file to open it"; position: fixed; inset: 0; display: grid; place-items: center; font: 600 18px var(--font-ui); color: var(--accent); background: color-mix(in srgb, var(--ground) 85%, transparent); border: 3px dashed var(--accent); z-index: 20; }
 @media (prefers-reduced-motion: no-preference) { button { transition: background .12s; } }
 
+/* editing an existing Word file: show its own formatting, keep it untouched */
+button:disabled, select:disabled { opacity: .35; cursor: not-allowed; }
+button:disabled:hover, select:disabled:hover { background: transparent; border-color: transparent; }
+select:disabled:hover { border-color: var(--line); }
+#editor.keep { white-space: pre-wrap; font-size: 11pt; line-height: 1.2; }
+#editor.keep p { margin: 0; min-height: 1em; }
+#editor.keep table { border-collapse: collapse; table-layout: fixed; width: auto; max-width: 100%; margin: 0; }
+#editor.keep td { border: 0; padding: 1pt 5.4pt; vertical-align: top; overflow-wrap: anywhere; min-width: 0; }
+#editor.keep table.bd td { border: 1px solid #000; }
+#editor.keep td.vm { padding: 0; }
+#editor.keep .mk { display: inline-block; text-indent: 0; user-select: none; }
+#editor.keep .obj { display: inline-block; padding: 0 5px; border: 1px dashed #9aa7b1; border-radius: 3px; color: #6b7782; font: 11px var(--font-ui); text-indent: 0; }
+#editor.keep img { max-width: 100%; height: auto; vertical-align: bottom; }
+.note { color: var(--muted); font-size: 12px; }
+
 /* signature dialog */
 .scrim { position: fixed; inset: 0; z-index: 30; background: color-mix(in srgb, var(--ground) 70%, transparent); display: grid; place-items: center; padding: 16px; }
 .dlg { width: min(560px, 100%); max-height: 100%; overflow: auto; background: var(--chrome); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 12px 40px rgba(10,25,40,.25); display: flex; flex-direction: column; gap: 14px; padding: 18px; }
@@ -218,13 +233,16 @@ button.ghost { border-color: var(--line); }
   <span id="msg">Example document loaded. Open your own .docx to edit it.</span>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"></script>
 <script>
 (function () {
   const ed = document.getElementById("editor");
   const $ = (id) => document.getElementById(id);
   const msgEl = $("msg");
+  let mode = "rich";          // "rich": a page built here. "keep": an opened Word file edited in place.
+  let kd = null;              // state of the opened Word file (mode "keep")
+  const newImgs = [];         // images added while editing an opened file
   const say = (t, warn) => { msgEl.textContent = t; msgEl.className = warn ? "warn" : ""; };
 
   const SAMPLE = `<h1>Project Proposal: Inventory Sync Service</h1>
@@ -241,7 +259,7 @@ button.ghost { border-color: var(--line); }
 
   /* ---------- draft persistence (per browser only) ---------- */
   const DRAFT_KEY = "docx-desk-draft";
-  function saveDraft() { try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ name: $("docName").value, html: ed.innerHTML })); } catch (e) {} }
+  function saveDraft() { if (mode !== "rich") return; try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ name: $("docName").value, html: ed.innerHTML })); } catch (e) {} }
   function loadDraft() { try { const d = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null"); if (d && d.html) return d; } catch (e) {} return null; }
 
   const draft = loadDraft();
@@ -315,7 +333,16 @@ button.ghost { border-color: var(--line); }
   $("imgFile").addEventListener("change", (e) => {
     const f = e.target.files[0]; if (!f) return;
     const r = new FileReader();
-    r.onload = () => { exec("insertHTML", '<img src="' + r.result + '" alt="">'); say("Image inserted."); };
+    r.onload = async () => {
+      if (mode === "keep") {
+        const png = await toPng(r.result);
+        if (!png) { say("Couldn't read that image.", true); return; }
+        const k = Math.min(1, 480 / png.w), w = Math.round(png.w * k), h = Math.round(png.h * k);
+        const idx = regImg(png.data, w, h); if (idx < 0) return;
+        exec("insertHTML", '<img data-new="' + idx + '" src="' + png.data + '" width="' + w + '" height="' + h + '" alt="">');
+      } else exec("insertHTML", '<img src="' + r.result + '" alt="">');
+      say("Image inserted.");
+    };
     r.readAsDataURL(f); e.target.value = "";
   });
   $("tableBtn").addEventListener("mousedown", (e) => {
@@ -332,7 +359,11 @@ button.ghost { border-color: var(--line); }
     if (show) $("findText").focus(); else clearHits();
   }
   function clearHits() { ed.querySelectorAll("mark.hit").forEach((m) => m.replaceWith(...m.childNodes)); ed.normalize(); }
-  function textNodes() { const w = document.createTreeWalker(ed, NodeFilter.SHOW_TEXT); const out = []; while (w.nextNode()) out.push(w.currentNode); return out; }
+  function textNodes() {
+    const w = document.createTreeWalker(ed, NodeFilter.SHOW_TEXT); const out = [];
+    while (w.nextNode()) { const n = w.currentNode; if (!(n.parentElement && n.parentElement.closest(".mk"))) out.push(n); }
+    return out;
+  }
   function eachMatch(q, fn) {
     let count = 0; const ql = q.toLowerCase();
     textNodes().forEach((node) => {
@@ -361,20 +392,15 @@ button.ghost { border-color: var(--line); }
   /* ---------- open .docx ---------- */
   async function openDocx(file) {
     if (!/\.docx$/i.test(file.name)) { say("That isn't a .docx file. Older .doc files need to be re-saved as .docx in Word first.", true); return; }
-    if (!window.mammoth) { say("The document reader didn't load. Check your connection and reload the page.", true); return; }
+    if (!window.JSZip) { say("The document reader didn't load. Check your connection and reload the page.", true); return; }
     say("Opening " + file.name + "…");
     try {
-      const buf = await file.arrayBuffer();
-      const res = await mammoth.convertToHtml({ arrayBuffer: buf }, {
-        styleMap: ["u => u", "strike => s", "p[style-name='Quote'] => blockquote:fresh", "p[style-name='Intense Quote'] => blockquote:fresh", "p[style-name='Title'] => h1:fresh", "p[style-name='Subtitle'] => h2:fresh"],
-        convertImage: mammoth.images.imgElement((img) => img.read("base64").then((d) => ({ src: "data:" + img.contentType + ";base64," + d })))
-      });
-      ed.innerHTML = res.value || "<p><br></p>";
+      await keepOpen(file);
       $("docName").value = file.name.replace(/\.docx$/i, "");
-      updateCounts(); saveDraft();
-      const lost = res.messages.filter((m) => m.type === "warning").length;
-      say(lost ? "Opened. Some formatting (fonts, colors, headers, page layout) isn't carried over." : "Opened " + file.name + ".");
+      updateCounts();
+      say("Opened " + file.name + ". Its formatting, headers, footers and layout are kept exactly as they are.");
     } catch (err) {
+      console.error(err);
       say("Couldn't read that file. It may be damaged or password-protected.", true);
     }
   }
@@ -396,6 +422,7 @@ button.ghost { border-color: var(--line); }
       return;
     }
     $("newDoc").dataset.armed = ""; $("newDoc").textContent = "New";
+    setKeepUI(false); kd = null; newImgs.length = 0;
     ed.innerHTML = "<p><br></p>"; $("docName").value = "Untitled"; updateCounts(); ed.focus(); say("Blank document.");
   });
 
@@ -575,14 +602,18 @@ button.ghost { border-color: var(--line); }
   if (window.claude && window.claude.use) downloadsP = window.claude.use("downloads").catch(() => null);
 
   async function saveDocx() {
-    if (!window.docx) { say("The .docx writer didn't load. Check your connection and reload the page.", true); return; }
+    if (mode === "rich" && !window.docx) { say("The .docx writer didn't load. Check your connection and reload the page.", true); return; }
     clearHits();
     say("Building .docx…");
     try {
-      const images = new Map();
-      for (const img of ed.querySelectorAll("img")) { const p = await toPng(img.src); if (p) images.set(img, p); }
-      const doc = buildDocument(ed, images);
-      const blob = await window.docx.Packer.toBlob(doc);
+      let blob;
+      if (mode === "keep") blob = await keepBuild();
+      else {
+        const images = new Map();
+        for (const img of ed.querySelectorAll("img")) { const p = await toPng(img.src); if (p) images.set(img, p); }
+        const doc = buildDocument(ed, images);
+        blob = await window.docx.Packer.toBlob(doc);
+      }
       const name = ($("docName").value.trim() || "Untitled").replace(/[\\/:*?"<>|]+/g, "-") + ".docx";
       const downloads = downloadsP ? await downloadsP : null;
       if (downloads) {
@@ -745,18 +776,535 @@ button.ghost { border-color: var(--line); }
     const lines = [];
     if ($("optName").checked) lines.push(esc(name));
     if ($("optDate").checked) lines.push("Date: " + date);
-    const html = '<p><img src="' + sig.src + '" width="' + sig.w + '" height="' + sig.h + '" alt="Signature"></p>' +
+    let tag = "";
+    if (mode === "keep") { const idx = regImg(sig.src, sig.w, sig.h); if (idx < 0) return; tag = ' data-new="' + idx + '"'; }
+    const html = '<p><img src="' + sig.src + '" width="' + sig.w + '" height="' + sig.h + '" alt="Signature"' + tag + '></p>' +
       (lines.length ? "<p>" + lines.join("<br>") + "</p>" : "") + "<p><br></p>";
 
     closeSign();
     ed.focus();
     const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(sigRange);
+    // A signature gets its own line: if the cursor sits in a paragraph that has text, start a new paragraph after it.
+    const anchor = sigRange.startContainer.nodeType === 3 ? sigRange.startContainer.parentElement : sigRange.startContainer;
+    const blk = anchor && anchor.closest ? anchor.closest("p") : null;
+    if (blk && ed.contains(blk) && edTokens(blk).trim()) {
+      const r = document.createRange(); r.selectNodeContents(blk); r.collapse(false);
+      sel.removeAllRanges(); sel.addRange(r);
+      document.execCommand("insertParagraph");
+    }
     document.execCommand("insertHTML", false, html);
     updateCounts(); saveDraft();
     say("Signature added. Save .docx to keep it in the file.");
   });
 
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("sigScrim").hidden) closeSign(); });
+
+  /* =====================================================================
+     Opened Word files: edit the original XML in place.
+     The page shows the file with its own fonts, colors, spacing, lists and
+     tables. On save, only paragraphs whose text changed are touched, and
+     new text takes the formatting of the text next to it. Styles, headers,
+     footers, numbering, settings and every unchanged paragraph stay as-is.
+     ===================================================================== */
+  const NS = {
+    w: "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
+    r: "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+    wp: "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing",
+    a: "http://schemas.openxmlformats.org/drawingml/2006/main",
+    pic: "http://schemas.openxmlformats.org/drawingml/2006/picture",
+    rel: "http://schemas.openxmlformats.org/package/2006/relationships",
+    ct: "http://schemas.openxmlformats.org/package/2006/content-types",
+    xml: "http://www.w3.org/XML/1998/namespace"
+  };
+  const kids = (el, name) => (el ? Array.from(el.children).filter((c) => c.localName === name) : []);
+  const kid = (el, name) => kids(el, name)[0] || null;
+  const wattr = (el, name) => (el ? el.getAttributeNS(NS.w, name) : null);
+  const flag = (parent, name) => { const e = kid(parent, name); if (!e) return undefined; const v = wattr(e, "val"); return !(v === "0" || v === "false" || v === "off"); };
+  const defined = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
+  const merge = (...objs) => Object.assign({}, ...objs.map(defined));
+
+  function readR(rPr) {
+    const o = {}; if (!rPr) return o; let v;
+    if ((v = flag(rPr, "b")) !== undefined) o.b = v;
+    if ((v = flag(rPr, "i")) !== undefined) o.i = v;
+    if ((v = flag(rPr, "strike")) !== undefined) o.strike = v;
+    if ((v = flag(rPr, "caps")) !== undefined) o.caps = v;
+    if ((v = flag(rPr, "smallCaps")) !== undefined) o.smallCaps = v;
+    const u = kid(rPr, "u"); if (u) o.u = wattr(u, "val") !== "none";
+    const c = kid(rPr, "color"); if (c) { const val = wattr(c, "val"); o.color = val && val !== "auto" ? "#" + val : null; }
+    const sz = kid(rPr, "sz"); if (sz) o.sz = +wattr(sz, "val") / 2;
+    const f = kid(rPr, "rFonts"); if (f) { const n = wattr(f, "ascii") || wattr(f, "hAnsi"); if (n) o.font = n; }
+    const hl = kid(rPr, "highlight"); if (hl) o.hl = wattr(hl, "val");
+    const va = kid(rPr, "vertAlign"); if (va) o.va = wattr(va, "val");
+    const sh = kid(rPr, "shd"); if (sh) { const fill = wattr(sh, "fill"); if (fill && fill !== "auto") o.shd = "#" + fill; }
+    return o;
+  }
+  function readP(pPr) {
+    const o = {}; if (!pPr) return o;
+    const jc = kid(pPr, "jc"); if (jc) o.jc = wattr(jc, "val");
+    const ind = kid(pPr, "ind");
+    if (ind) {
+      const num = (n) => { const x = wattr(ind, n); return x === null || x === "" ? undefined : +x; };
+      const l = num("left") ?? num("start"); if (l !== undefined) o.indL = l;
+      const r = num("right") ?? num("end"); if (r !== undefined) o.indR = r;
+      const h = num("hanging"); if (h !== undefined) o.first = -h;
+      const f = num("firstLine"); if (f !== undefined) o.first = f;
+    }
+    const sp = kid(pPr, "spacing");
+    if (sp) {
+      const num = (n) => { const x = wattr(sp, n); return x === null || x === "" ? undefined : +x; };
+      o.before = num("before"); o.after = num("after"); o.line = num("line");
+      const lr = wattr(sp, "lineRule"); if (lr) o.lineRule = lr;
+    }
+    const np = kid(pPr, "numPr");
+    if (np) { const n = kid(np, "numId"), l = kid(np, "ilvl"); if (n) o.numId = wattr(n, "val"); if (l) o.ilvl = +wattr(l, "val"); }
+    return o;
+  }
+  const realBorders = (tblPr) => { const b = kid(tblPr, "tblBorders"); return !!b && Array.from(b.children).some((x) => !["nil", "none"].includes(wattr(x, "val"))); };
+
+  function parseStyles(doc) {
+    const out = { defR: {}, defP: {}, byId: new Map(), defPara: null };
+    if (!doc) return out;
+    const dd = doc.getElementsByTagNameNS(NS.w, "docDefaults")[0];
+    if (dd) { out.defR = readR(kid(kid(dd, "rPrDefault"), "rPr")); out.defP = readP(kid(kid(dd, "pPrDefault"), "pPr")); }
+    for (const s of Array.from(doc.getElementsByTagNameNS(NS.w, "style"))) {
+      const id = wattr(s, "styleId"), type = wattr(s, "type");
+      out.byId.set(id, { type, basedOn: wattr(kid(s, "basedOn"), "val"), p: readP(kid(s, "pPr")), r: readR(kid(s, "rPr")), bd: realBorders(kid(s, "tblPr")) });
+      if (type === "paragraph" && wattr(s, "default") === "1") out.defPara = id;
+    }
+    return out;
+  }
+  function styleChain(id, styles) {
+    const chain = [], seen = new Set();
+    while (id && styles.byId.has(id) && !seen.has(id)) { seen.add(id); const s = styles.byId.get(id); chain.unshift(s); id = s.basedOn; }
+    return chain;
+  }
+  function parseNumbering(doc) {
+    const out = { abs: new Map(), nums: new Map() };
+    if (!doc) return out;
+    for (const a of Array.from(doc.getElementsByTagNameNS(NS.w, "abstractNum"))) {
+      const lv = new Map();
+      for (const l of kids(a, "lvl")) {
+        const st = wattr(kid(l, "start"), "val");
+        lv.set(+wattr(l, "ilvl"), { fmt: wattr(kid(l, "numFmt"), "val"), text: wattr(kid(l, "lvlText"), "val"), start: st === null ? 1 : +st, p: readP(kid(l, "pPr")) });
+      }
+      out.abs.set(wattr(a, "abstractNumId"), lv);
+    }
+    for (const n of Array.from(doc.getElementsByTagNameNS(NS.w, "num"))) out.nums.set(wattr(n, "numId"), wattr(kid(n, "abstractNumId"), "val"));
+    return out;
+  }
+  function fmtNum(n, f) {
+    const letters = (k, up) => { let s = ""; while (k > 0) { k--; s = String.fromCharCode(97 + (k % 26)) + s; k = Math.floor(k / 26); } return up ? s.toUpperCase() : s; };
+    const roman = (k) => { const m = [[1000, "m"], [900, "cm"], [500, "d"], [400, "cd"], [100, "c"], [90, "xc"], [50, "l"], [40, "xl"], [10, "x"], [9, "ix"], [5, "v"], [4, "iv"], [1, "i"]]; let s = ""; for (const [v, t] of m) while (k >= v) { s += t; k -= v; } return s; };
+    switch (f) {
+      case "lowerLetter": return letters(n, false);
+      case "upperLetter": return letters(n, true);
+      case "lowerRoman": return roman(n);
+      case "upperRoman": return roman(n).toUpperCase();
+      case "decimalZero": return (n < 10 ? "0" : "") + n;
+      default: return String(n);
+    }
+  }
+  let counters = new Map();
+  function markerFor(numId, ilvl) {
+    const abs = kd.num.abs.get(kd.num.nums.get(numId)); if (!abs) return null;
+    const lv = abs.get(ilvl); if (!lv) return null;
+    let arr = counters.get(numId); if (!arr) { arr = []; counters.set(numId, arr); }
+    arr[ilvl] = arr[ilvl] === undefined ? lv.start : arr[ilvl] + 1;
+    arr.length = ilvl + 1;
+    if (lv.fmt === "bullet") {
+      const t = lv.text || "";
+      return { text: /^[\uF000-\uF0FF]$/.test(t) || !t.trim() ? (ilvl % 2 ? "◦" : "•") : t === "o" ? "◦" : /[A-Za-z0-9]/.test(t) && t.length === 1 && t !== "o" ? "▪" : t, lv };
+    }
+    const text = (lv.text || "%1.").replace(/%(\d)/g, (_, d) => { const k = +d - 1, l2 = abs.get(k); return fmtNum(arr[k] ?? (l2 ? l2.start : 1), l2 ? l2.fmt : "decimal"); });
+    return { text, lv };
+  }
+
+  function paraProps(p) {
+    const pPr = kid(p, "pPr");
+    const sid = wattr(kid(pPr, "pStyle"), "val") || kd.styles.defPara;
+    const chain = styleChain(sid, kd.styles);
+    const P0 = merge(kd.styles.defP, ...chain.map((s) => s.p));
+    const R = merge(kd.styles.defR, ...chain.map((s) => s.r));
+    const direct = readP(pPr);
+    const numId = direct.numId ?? P0.numId, ilvl = direct.ilvl ?? P0.ilvl ?? 0;
+    let lvP = {};
+    if (numId && numId !== "0") { const abs = kd.num.abs.get(kd.num.nums.get(numId)); const lv = abs && abs.get(ilvl); if (lv) lvP = { indL: lv.p.indL, indR: lv.p.indR, first: lv.p.first }; }
+    return { P: merge(P0, lvP, direct), R, numId, ilvl };
+  }
+  function runProps(run, parentR) {
+    const rPr = kid(run, "rPr"), rs = wattr(kid(rPr, "rStyle"), "val");
+    return merge(parentR, ...(rs ? styleChain(rs, kd.styles).map((s) => s.r) : []), readR(rPr));
+  }
+
+  const HL = { yellow: "#ffff00", green: "#00ff00", cyan: "#00ffff", magenta: "#ff00ff", blue: "#0000ff", red: "#ff0000", darkBlue: "#000080", darkCyan: "#008080", darkGreen: "#008000", darkMagenta: "#800080", darkRed: "#800000", darkYellow: "#808000", darkGray: "#808080", lightGray: "#c0c0c0", black: "#000000", white: "#ffffff" };
+  function fontStack(n) {
+    const name = n.replace(/["\\]/g, ""), l = name.toLowerCase();
+    if (/courier|consolas|mono|menlo/.test(l)) return '"' + name + '", ui-monospace, monospace';
+    if (!/sans/.test(l) && /times|georgia|cambria|garamond|palatino|book antiqua|minion|constantia|serif/.test(l)) return '"' + name + '", Georgia, "Times New Roman", serif';
+    return '"' + name + '", Carlito, Calibri, Arial, sans-serif';
+  }
+  function runCss(R) {
+    const s = [];
+    if (R.b) s.push("font-weight:700");
+    if (R.i) s.push("font-style:italic");
+    const deco = [R.u && "underline", R.strike && "line-through"].filter(Boolean); if (deco.length) s.push("text-decoration:" + deco.join(" "));
+    if (R.color) s.push("color:" + R.color);
+    if (R.sz) s.push("font-size:" + R.sz + "pt");
+    if (R.font) s.push("font-family:" + fontStack(R.font));
+    const bg = R.hl ? HL[R.hl] : R.shd; if (bg) s.push("background:" + bg);
+    if (R.caps) s.push("text-transform:uppercase");
+    if (R.smallCaps) s.push("font-variant:small-caps");
+    if (R.va === "superscript" || R.va === "subscript") s.push("vertical-align:" + (R.va === "superscript" ? "super" : "sub") + ";font-size:" + (R.sz ? R.sz * 0.65 : 7) + "pt");
+    return s.join(";");
+  }
+  function paraCss(P, R) {
+    const s = [];
+    const jc = { center: "center", right: "right", end: "right", both: "justify", distribute: "justify", left: "left", start: "left" }[P.jc]; if (jc) s.push("text-align:" + jc);
+    s.push("margin:" + (P.before || 0) / 20 + "pt " + (P.indR || 0) / 20 + "pt " + (P.after || 0) / 20 + "pt " + (P.indL || 0) / 20 + "pt");
+    if (P.first) s.push("text-indent:" + P.first / 20 + "pt");
+    if (P.line) s.push("line-height:" + (!P.lineRule || P.lineRule === "auto" ? (P.line / 240 * 1.2).toFixed(3) : P.line / 20 + "pt"));
+    if (R.sz) s.push("font-size:" + R.sz + "pt");
+    if (R.font) s.push("font-family:" + fontStack(R.font));
+    return s.join(";");
+  }
+
+  /* paragraph content as an ordered list of text/tab/break/object atoms */
+  function* runsOf(el, link) {
+    for (const c of Array.from(el.children)) {
+      const n = c.localName;
+      if (n === "r") yield { run: c, link };
+      else if (n === "hyperlink") yield* runsOf(c, true);
+      else if (["ins", "moveTo", "smartTag", "fldSimple", "sdt", "sdtContent", "customXml"].includes(n)) yield* runsOf(c, link);
+    }
+  }
+  function paraAtoms(p) {
+    const atoms = []; let pos = 0;
+    for (const { run } of runsOf(p, false)) {
+      for (const c of Array.from(run.children)) {
+        const n = c.localName; let a = null;
+        if (n === "t") a = { type: "t", text: c.textContent };
+        else if (n === "tab") a = { type: "tab", text: "\t" };
+        else if (n === "br" || n === "cr") { const t = wattr(c, "type"); a = t === "page" || t === "column" ? { type: "obj", text: "\uFFFC", label: "page break" } : { type: "br", text: "\n" }; }
+        else if (["drawing", "pict", "object", "AlternateContent"].includes(n)) a = { type: "obj", text: "\uFFFC" };
+        else if (n === "sym" || n === "noBreakHyphen") a = { type: "obj", text: "\uFFFC", label: n === "noBreakHyphen" ? "-" : "•" };
+        if (a) { a.node = c; a.run = run; a.start = pos; pos += a.text.length; a.end = pos; atoms.push(a); }
+      }
+    }
+    return atoms;
+  }
+
+  /* ---- showing the file ---- */
+  let nextId = 0;
+  const reg = (node) => { const id = ++nextId; kd.ids.set(id, node); kd.idOf.set(node, id); return id; };
+  function objEl(a) {
+    const blip = a.node.getElementsByTagNameNS(NS.a, "blip")[0];
+    const rid = blip && blip.getAttributeNS(NS.r, "embed");
+    const url = rid && kd.media.get(rid);
+    const box = (label) => { const s = document.createElement("span"); s.className = "obj"; s.setAttribute("data-o", ""); s.contentEditable = "false"; s.textContent = label; return s; };
+    if (url) {
+      const img = document.createElement("img"); img.setAttribute("data-o", ""); img.src = url;
+      const ext = a.node.getElementsByTagNameNS(NS.wp, "extent")[0];
+      if (ext) img.style.width = +ext.getAttribute("cx") / 9525 + "px";
+      img.onerror = () => img.replaceWith(box("image"));
+      return img;
+    }
+    return box(a.label || "▢");
+  }
+  function renderPara(p) {
+    const { P, R, numId, ilvl } = paraProps(p);
+    const el = document.createElement("p");
+    el.setAttribute("data-pid", reg(p)); el.style.cssText = paraCss(P, R);
+    if (numId && numId !== "0") {
+      const m = markerFor(numId, ilvl);
+      if (m) { const mk = document.createElement("span"); mk.className = "mk"; mk.contentEditable = "false"; mk.textContent = m.text; mk.style.minWidth = (P.first < 0 ? -P.first / 20 : 18) + "pt"; el.appendChild(mk); }
+    }
+    const atoms = paraAtoms(p), cache = new Map();
+    const cssOf = (run) => { if (!cache.has(run)) cache.set(run, runCss(runProps(run, R))); return cache.get(run); };
+    let cur = null, curCss = null;
+    for (const a of atoms) {
+      if (a.type === "t" || a.type === "tab") {
+        const css = cssOf(a.run);
+        if (!cur || curCss !== css) { cur = document.createElement("span"); if (css) cur.style.cssText = css; el.appendChild(cur); curCss = css; }
+        if (cur.firstChild) cur.firstChild.data += a.text; else cur.appendChild(document.createTextNode(a.text));
+      } else if (a.type === "br") { const br = document.createElement("br"); br.setAttribute("data-o", ""); el.appendChild(br); cur = null; }
+      else { el.appendChild(objEl(a)); cur = null; }
+    }
+    if (!atoms.length) el.appendChild(document.createElement("br"));
+    return el;
+  }
+  function renderBlocks(xmlEl, edEl) {
+    for (const c of Array.from(xmlEl.children)) {
+      if (c.localName === "p") edEl.appendChild(renderPara(c));
+      else if (c.localName === "tbl") edEl.appendChild(renderTable(c));
+    }
+  }
+  function renderTable(tbl) {
+    const t = document.createElement("table"); t.setAttribute("data-pid", reg(tbl));
+    const cols = kids(kid(tbl, "tblGrid"), "gridCol").map((c) => +wattr(c, "w") / 20);
+    if (cols.length) {
+      const cg = document.createElement("colgroup");
+      cols.forEach((w) => { const c = document.createElement("col"); c.style.width = w + "pt"; cg.appendChild(c); });
+      t.appendChild(cg); t.style.width = cols.reduce((x, y) => x + y, 0) + "pt";
+    }
+    const tblPr = kid(tbl, "tblPr");
+    const sid = wattr(kid(tblPr, "tblStyle"), "val");
+    if (realBorders(tblPr) || styleChain(sid, kd.styles).some((s) => s.bd)) t.className = "bd";
+    const tb = document.createElement("tbody"); t.appendChild(tb);
+    for (const tr of kids(tbl, "tr")) {
+      const row = document.createElement("tr"); row.setAttribute("data-pid", reg(tr));
+      for (const tc of kids(tr, "tc")) {
+        const tcPr = kid(tc, "tcPr"), vm = kid(tcPr, "vMerge");
+        const td = document.createElement("td"); td.setAttribute("data-pid", reg(tc));
+        const span = +wattr(kid(tcPr, "gridSpan"), "val"); if (span > 1) td.colSpan = span;
+        if (vm && wattr(vm, "val") !== "restart") { td.className = "vm"; td.contentEditable = "false"; row.appendChild(td); continue; }
+        const fill = wattr(kid(tcPr, "shd"), "fill"); if (fill && fill !== "auto") td.style.background = "#" + fill;
+        renderBlocks(tc, td);
+        row.appendChild(td);
+      }
+      tb.appendChild(row);
+    }
+    return t;
+  }
+
+  function setKeepUI(on) {
+    mode = on ? "keep" : "rich";
+    ed.classList.toggle("keep", on);
+    document.querySelectorAll(".rich").forEach((el) => {
+      if (el.dataset.t === undefined) el.dataset.t = el.title || "";
+      el.disabled = on;
+      el.title = on ? "Not available on an opened Word file, so its formatting stays exactly as it was" : el.dataset.t;
+    });
+    if (!on) { ed.style.padding = ""; document.querySelector(".sheet").style.maxWidth = ""; }
+  }
+  document.querySelectorAll("[data-cmd], #blockStyle, #linkBtn, #tableBtn").forEach((el) => el.classList.add("rich"));
+
+  function regImg(src, w, h) {
+    if (newImgs.length >= 256) { say("That's the most images one editing session can add. Save, then reopen the file to add more.", true); return -1; }
+    newImgs.push({ src, w, h }); return newImgs.length - 1;
+  }
+
+  async function keepOpen(file) {
+    const buf = await file.arrayBuffer();
+    const zip = await JSZip.loadAsync(buf);
+    const parse = async (path) => {
+      const z = zip.file(path); if (!z) return null;
+      const d = new DOMParser().parseFromString(await z.async("string"), "application/xml");
+      return d.getElementsByTagName("parsererror").length ? null : d;
+    };
+    const doc = await parse("word/document.xml");
+    if (!doc) throw new Error("This doesn't look like a Word document.");
+    const body = doc.getElementsByTagNameNS(NS.w, "body")[0];
+    if (!body) throw new Error("This doesn't look like a Word document.");
+    const media = new Map();
+    const rels = await parse("word/_rels/document.xml.rels");
+    if (rels) {
+      for (const r of Array.from(rels.getElementsByTagName("Relationship"))) {
+        if (!/\/image$/.test(r.getAttribute("Type") || "")) continue;
+        let target = r.getAttribute("Target") || ""; if (r.getAttribute("TargetMode") === "External") continue;
+        target = target.startsWith("/") ? target.slice(1) : "word/" + target;
+        const parts = []; for (const seg of target.split("/")) { if (seg === "..") parts.pop(); else if (seg !== ".") parts.push(seg); }
+        const f = zip.file(parts.join("/")); if (!f) continue;
+        const ext = parts[parts.length - 1].split(".").pop().toLowerCase();
+        const type = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml", bmp: "image/bmp" }[ext];
+        if (!type) continue;
+        media.set(r.getAttribute("Id"), URL.createObjectURL(new Blob([await f.async("uint8array")], { type })));
+      }
+    }
+    if (kd) kd.media.forEach((u) => URL.revokeObjectURL(u));
+    const all = Array.from(doc.getElementsByTagName("*"));
+    kd = { file, buf, doc, body, all, index: new Map(all.map((n, i) => [n, i])), ids: new Map(), idOf: new Map(), media,
+           styles: parseStyles(await parse("word/styles.xml")), num: parseNumbering(await parse("word/numbering.xml")) };
+    newImgs.length = 0; counters = new Map(); nextId = 0;
+    setKeepUI(true);
+    ed.innerHTML = "";
+    renderBlocks(body, ed);
+    if (!ed.firstChild) ed.innerHTML = "<p><br></p>";
+    // page size and margins from the file
+    const sect = kid(body, "sectPr"), pgSz = kid(sect, "pgSz"), pgMar = kid(sect, "pgMar");
+    const tw = (el, n, d) => { const v = el ? wattr(el, n) : null; return v ? +v / 15 : d; };
+    const pw = tw(pgSz, "w", 816), top = tw(pgMar, "top", 96), bot = tw(pgMar, "bottom", 96), lf = tw(pgMar, "left", 96), rt = tw(pgMar, "right", 96);
+    document.querySelector(".sheet").style.maxWidth = Math.round(pw) + "px";
+    ed.style.padding = Math.round(top) + "px min(" + Math.round(rt) + "px, 7vw) " + Math.round(bot) + "px min(" + Math.round(lf) + "px, 7vw)";
+    ed.scrollTop = 0; window.scrollTo(0, 0);
+  }
+
+  /* ---- reading the page back into the file ---- */
+  const isTail = (n, root) => { for (; n && n !== root; n = n.parentNode) { let s = n.nextSibling; while (s && s.nodeType === 3 && !s.data) s = s.nextSibling; if (s) return false; } return true; };
+  function edTokens(root) {
+    let out = "";
+    (function walk(n) {
+      for (const c of Array.from(n.childNodes)) {
+        if (c.nodeType === 3) { out += c.data; continue; }
+        if (c.nodeType !== 1 || c.classList.contains("mk")) continue;
+        if (c.nodeName === "BR") { if (c.hasAttribute("data-o") || !isTail(c, root)) out += "\n"; }
+        else if (c.nodeName === "IMG") out += c.hasAttribute("data-new") ? String.fromCharCode(0xE000 + +c.getAttribute("data-new")) : "\uFFFC";
+        else if (c.hasAttribute("data-o")) out += "\uFFFC";
+        else walk(c);
+      }
+    })(root);
+    return out.replace(/\u00a0/g, " ").replace(/\u200b/g, "");
+  }
+
+  function buildSync(cdoc, ctx) {
+    const cel = (name) => cdoc.createElementNS(NS.w, "w:" + name);
+    const mkT = (s) => { const t = cel("t"); t.textContent = s; t.setAttributeNS(NS.xml, "xml:space", "preserve"); return t; };
+    const drawingFor = (idx) => {
+      const im = newImgs[idx]; if (!im) return null;
+      let e = ctx.rels.get(idx);
+      if (!e) {
+        const n = ctx.rels.size + 1;
+        e = { rid: "rIdDocxDesk" + n, target: "media/docxdesk" + n + ".png", bytes: Uint8Array.from(atob(im.src.split(",")[1]), (c) => c.charCodeAt(0)) };
+        ctx.rels.set(idx, e);
+      }
+      const cx = Math.round(im.w * 9525), cy = Math.round(im.h * 9525), id = ++ctx.docPr;
+      const xml = '<w:drawing xmlns:w="' + NS.w + '" xmlns:wp="' + NS.wp + '" xmlns:a="' + NS.a + '" xmlns:pic="' + NS.pic + '" xmlns:r="' + NS.r + '">' +
+        '<wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="' + cx + '" cy="' + cy + '"/><wp:docPr id="' + id + '" name="Picture ' + id + '"/>' +
+        '<wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr>' +
+        '<a:graphic><a:graphicData uri="' + NS.pic + '"><pic:pic><pic:nvPicPr><pic:cNvPr id="' + id + '" name="docxdesk' + id + '.png"/><pic:cNvPicPr/></pic:nvPicPr>' +
+        '<pic:blipFill><a:blip r:embed="' + e.rid + '"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>' +
+        '<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="' + cx + '" cy="' + cy + '"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>';
+      return cdoc.importNode(new DOMParser().parseFromString(xml, "application/xml").documentElement, true);
+    };
+    const pieces = (ins) => {
+      const out = []; let buf = "";
+      const flush = () => { if (buf) { out.push(mkT(buf)); buf = ""; } };
+      for (const ch of ins) {
+        if (ch === "\t") { flush(); out.push(cel("tab")); }
+        else if (ch === "\n") { flush(); out.push(cel("br")); }
+        else if (ch >= "\uE000" && ch <= "\uE0FF") { flush(); const d = drawingFor(ch.charCodeAt(0) - 0xE000); if (d) out.push(d); }
+        else if (ch !== "\uFFFC") buf += ch;
+      }
+      flush(); return out;
+    };
+
+    const deleteRange = (p, s, e) => {
+      for (const a of paraAtoms(p)) {
+        if (a.end <= s || a.start >= e) continue;
+        if (a.type === "t") { const x = Math.max(s, a.start) - a.start, y = Math.min(e, a.end) - a.start; a.node.textContent = a.text.slice(0, x) + a.text.slice(y); a.node.setAttributeNS(NS.xml, "xml:space", "preserve"); }
+        else a.node.remove();
+      }
+    };
+    const insertAt = (p, pos, ins) => {
+      if (!ins) return;
+      const atoms = paraAtoms(p), els = pieces(ins);
+      if (!els.length) return;
+      const target = atoms.find((a) => a.end === pos && a.end > a.start);
+      const inside = atoms.find((a) => a.type === "t" && a.start < pos && pos < a.end);
+      if (target) { let ref = target.node.nextSibling; for (const e of els) target.run.insertBefore(e, ref); }
+      else if (inside) {
+        const off = pos - inside.start, tail = mkT(inside.text.slice(off));
+        inside.node.textContent = inside.text.slice(0, off); inside.node.setAttributeNS(NS.xml, "xml:space", "preserve");
+        const ref = inside.node.nextSibling;
+        for (const e of els) inside.run.insertBefore(e, ref);
+        inside.run.insertBefore(tail, ref);
+      } else if (atoms.length) { for (const e of els) atoms[0].run.insertBefore(e, atoms[0].node); }
+      else {
+        let run = Array.from(runsOf(p, false)).pop(); run = run && run.run;
+        if (!run) { run = cel("r"); const prRpr = kid(kid(p, "pPr"), "rPr"); if (prRpr) run.appendChild(prRpr.cloneNode(true)); p.appendChild(run); }
+        for (const e of els) run.appendChild(e);
+      }
+    };
+    const makeParagraph = (ref) => {
+      const p = cel("p");
+      if (ref) {
+        const pPr = kid(ref, "pPr");
+        if (pPr) { const c = pPr.cloneNode(true); kids(c, "sectPr").forEach((x) => x.remove()); p.appendChild(c); }
+        const last = Array.from(runsOf(ref, false)).pop();
+        const rPr = (last && kid(last.run, "rPr")) || kid(pPr, "rPr");
+        if (rPr) { const r = cel("r"); r.appendChild(rPr.cloneNode(true)); p.appendChild(r); }
+      }
+      return p;
+    };
+    const syncPara = (xp, edP) => {
+      const nu = edTokens(edP);
+      const old = paraAtoms(xp).map((a) => a.text).join("").replace(/\u00a0/g, " ");
+      if (old === nu) return;
+      ctx.changed = true;
+      let pf = 0; while (pf < old.length && pf < nu.length && old[pf] === nu[pf]) pf++;
+      let sf = 0; while (sf < old.length - pf && sf < nu.length - pf && old[old.length - 1 - sf] === nu[nu.length - 1 - sf]) sf++;
+      deleteRange(xp, pf, old.length - sf);
+      insertAt(xp, pf, nu.slice(pf, nu.length - sf));
+    };
+    const cloneOf = (orig) => ctx.cAll[kd.index.get(orig)];
+    const lookup = (el) => { const id = el.getAttribute("data-pid"); const o = id !== null && kd.ids.get(+id); return o ? cloneOf(o) : null; };
+
+    const process = (edEl, xmlEl) => {
+      const seen = new Set(); let prev = null;
+      for (const child of Array.from(edEl.children)) {
+        const pid = child.getAttribute("data-pid");
+        let xml = null;
+        if (pid !== null && !seen.has(pid)) { const c = lookup(child); if (c && c.parentNode === xmlEl) xml = c; }
+        if (xml) seen.add(pid);
+        if (child.nodeName === "TABLE") {
+          if (xml && xml.localName === "tbl") {
+            for (const edTr of Array.from(child.querySelectorAll(":scope > tbody > tr"))) {
+              const xtr = lookup(edTr); if (!xtr) continue;
+              for (const edTd of Array.from(edTr.children)) { const xtc = lookup(edTd); if (xtc && !edTd.classList.contains("vm")) process(edTd, xtc); }
+            }
+            prev = xml;
+          }
+          continue;
+        }
+        if (xml && xml.localName === "p") { syncPara(xml, child); prev = xml; continue; }
+        const np = makeParagraph(prev && prev.localName === "p" ? prev : null);
+        if (prev) prev.after(np); else xmlEl.insertBefore(np, Array.from(xmlEl.children).find((c) => c.localName !== "tcPr") || null);
+        ctx.changed = true;
+        insertAt(np, 0, edTokens(child));
+        prev = np;
+      }
+      for (const c of Array.from(xmlEl.children)) {
+        const oid = kd.idOf.get(kd.all[ctx.cIdx.get(c)]);
+        if (oid !== undefined && !seen.has(String(oid)) && (c.localName === "p" || c.localName === "tbl")) { c.remove(); ctx.changed = true; }
+      }
+      if (xmlEl.localName === "tc") {
+        const last = Array.from(xmlEl.children).filter((c) => c.localName !== "tcPr").pop();
+        if (!last || last.localName !== "p") xmlEl.appendChild(cel("p"));
+      }
+    };
+    return { process };
+  }
+
+  async function keepBuild() {
+    const cdoc = kd.doc.cloneNode(true);
+    const cAll = Array.from(cdoc.getElementsByTagName("*"));
+    let maxPr = 0; for (const d of cAll) if (d.localName === "docPr") maxPr = Math.max(maxPr, +d.getAttribute("id") || 0);
+    const ctx = { cAll, cIdx: new Map(cAll.map((n, i) => [n, i])), rels: new Map(), docPr: maxPr, changed: false };
+    const cbody = cAll[kd.index.get(kd.body)];
+    buildSync(cdoc, ctx).process(ed, cbody);
+    if (!ctx.changed) return kd.file;   // nothing edited: hand back the original bytes
+    const zip = await JSZip.loadAsync(kd.buf);
+    const put = (path, data) => zip.file(path, data, { createFolders: false });
+    const ser = new XMLSerializer();
+    const xmlText = (d) => '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n' + ser.serializeToString(d).replace(/^\s*<\?xml[^>]*\?>\s*/, "");
+    put("word/document.xml", xmlText(cdoc));
+    if (ctx.rels.size) {
+      const relsPath = "word/_rels/document.xml.rels";
+      const rd = new DOMParser().parseFromString(await zip.file(relsPath).async("string"), "application/xml");
+      for (const e of ctx.rels.values()) {
+        const r = rd.createElementNS(NS.rel, "Relationship");
+        r.setAttribute("Id", e.rid); r.setAttribute("Type", NS.r + "/image"); r.setAttribute("Target", e.target);
+        rd.documentElement.appendChild(r);
+        put("word/" + e.target, e.bytes);
+      }
+      put(relsPath, xmlText(rd));
+      const cd = new DOMParser().parseFromString(await zip.file("[Content_Types].xml").async("string"), "application/xml");
+      if (!Array.from(cd.getElementsByTagName("Default")).some((d) => (d.getAttribute("Extension") || "").toLowerCase() === "png")) {
+        const d = cd.createElementNS(NS.ct, "Default"); d.setAttribute("Extension", "png"); d.setAttribute("ContentType", "image/png");
+        cd.documentElement.insertBefore(d, cd.documentElement.firstChild);
+        put("[Content_Types].xml", xmlText(cd));
+      }
+    }
+    return zip.generateAsync({ type: "blob", compression: "DEFLATE", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
+  }
+
+  // On an opened file, pasting brings in plain text only, so nothing arrives with foreign formatting.
+  ed.addEventListener("paste", (e) => {
+    if (mode !== "keep") return;
+    e.preventDefault();
+    const t = (e.clipboardData && e.clipboardData.getData("text/plain")) || "";
+    if (t) document.execCommand("insertText", false, t.replace(/\r/g, ""));
+  });
 
   window.__docxDesk = { buildDocument };
 })();
