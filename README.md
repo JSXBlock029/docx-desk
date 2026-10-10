@@ -1,5 +1,7 @@
 # Docx Desk
 
+**Live demo: https://lowriskbtc.github.io/docx-desk/**
+
 A Word (.docx) editor that runs in your browser. Open a .docx, edit it, sign it, and save it back as .docx **with its original formatting untouched**. Nothing gets uploaded: the whole thing runs on your own machine.
 
 ## Features
