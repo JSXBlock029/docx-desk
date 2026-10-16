@@ -104,6 +104,32 @@ select:disabled:hover { border-color: var(--line); }
 #editor.keep img { max-width: 100%; height: auto; vertical-align: bottom; }
 .note { color: var(--muted); font-size: 12px; }
 
+/* PDF view */
+body.pdfmode .sheet { display: none; }
+#pdfView { max-width: 1200px; margin: 0 auto; display: flex; flex-direction: column; align-items: center; gap: 16px; }
+.pg { position: relative; background: #fff; flex: none; box-shadow: 0 1px 2px rgba(0,0,0,.14), 0 6px 24px rgba(20,40,60,.12); }
+.pg canvas { display: block; }
+.pg .fl, .pg .il { position: absolute; inset: 0; }
+.pg .il { pointer-events: none; }
+body.placing .pg { cursor: crosshair; }
+body.placing .pg .fl { pointer-events: none; }
+.it { position: absolute; pointer-events: auto; color: #111; }
+.it:hover { outline: 1px dashed var(--accent); }
+.it.sel { outline: 1.5px solid var(--accent); }
+.it .hd { position: absolute; left: -1.5px; bottom: 100%; display: none; align-items: center; height: 22px; background: var(--accent); color: var(--chrome); border-radius: 4px 4px 0 0; font: 500 12px var(--font-ui); z-index: 3; }
+.it.sel .hd { display: flex; }
+.it .grip { cursor: grab; padding: 0 7px; line-height: 22px; user-select: none; touch-action: none; }
+.it .x { all: unset; cursor: pointer; padding: 0 8px; line-height: 22px; font-size: 15px; }
+.it .x:focus-visible { outline: 2px solid var(--chrome); }
+.it .tx { white-space: pre; outline: none; min-width: 1.6em; min-height: 1.2em; line-height: 1.2; font-family: Helvetica, Arial, "Liberation Sans", sans-serif; color: #111; cursor: text; padding: 0; }
+.it.img img, .it.check svg, .it.cross svg { width: 100%; height: 100%; display: block; user-select: none; -webkit-user-drag: none; cursor: move; touch-action: none; }
+.it .rz { position: absolute; right: -6px; bottom: -6px; width: 12px; height: 12px; border-radius: 2px; background: var(--accent); cursor: nwse-resize; display: none; touch-action: none; z-index: 3; }
+.it.sel .rz { display: block; }
+.fld { position: absolute; box-sizing: border-box; margin: 0; padding: 0 3px; background: #fff7c2; border: 1px solid #d6b400; color: #111; font-family: Helvetica, Arial, "Liberation Sans", sans-serif; border-radius: 1px; }
+.fld:focus { outline: 2px solid var(--accent); outline-offset: 0; }
+textarea.fld { resize: none; padding: 2px 3px; }
+input.fld[type=checkbox], input.fld[type=radio] { padding: 0; accent-color: var(--accent); background: #fff7c2; }
+
 /* signature dialog */
 .scrim { position: fixed; inset: 0; z-index: 30; background: color-mix(in srgb, var(--ground) 70%, transparent); display: grid; place-items: center; padding: 16px; }
 .dlg { width: min(560px, 100%); max-height: 100%; overflow: auto; background: var(--chrome); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 12px 40px rgba(10,25,40,.25); display: flex; flex-direction: column; gap: 14px; padding: 18px; }
@@ -135,12 +161,27 @@ button.ghost { border-color: var(--line); }
   <div class="row file">
     <span class="brand">Docx Desk</span>
     <input id="docName" value="Sample - project proposal" aria-label="File name">
-    <span class="ext">.docx</span>
-    <label class="btn" title="Open a .docx file"><svg class="i" viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3z"/></svg>Open<input id="openFile" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"></label>
+    <span class="ext" id="extLabel">.docx</span>
+    <label class="btn" title="Open a .docx or .pdf file"><svg class="i" viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3z"/></svg>Open<input id="openFile" type="file" accept=".docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"></label>
     <button id="newDoc" title="Start a blank document">New</button>
-    <button id="saveDoc" class="primary" title="Save as .docx (Ctrl+S)"><svg class="i" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>Save .docx</button>
+    <button id="saveDoc" class="primary" title="Save as .docx (Ctrl+S)"><svg class="i" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span id="saveLbl">Save .docx</span></button>
   </div>
-  <div class="row" role="toolbar" aria-label="Formatting">
+  <div class="row" id="pdfRow" role="toolbar" aria-label="PDF tools" hidden>
+    <button data-tool="text" aria-pressed="false" title="Type text anywhere on the page"><svg class="i" viewBox="0 0 24 24"><path d="M5 6V4h14v2M12 4v16M9 20h6"/></svg>Text</button>
+    <button data-tool="date" aria-pressed="false" title="Add today's date"><svg class="i" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="1"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>Date</button>
+    <button data-tool="check" aria-pressed="false" title="Add a checkmark"><svg class="i" viewBox="0 0 24 24"><path d="M5 13l4 4 10-11"/></svg></button>
+    <button data-tool="cross" aria-pressed="false" title="Add an X"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    <button id="pdfSignBtn" title="Add your signature"><svg class="i" viewBox="0 0 24 24"><path d="M3 17c3-6 5-9 6-8s-2 7 0 7 3-4 4-4 0 3 2 3 3-2 6-2M3 21h18"/></svg>Sign</button>
+    <span class="sep"></span>
+    <select id="pdfSize" aria-label="Text size" title="Text size">
+      <option>8</option><option>9</option><option>10</option><option>11</option><option selected>12</option><option>14</option><option>16</option><option>18</option><option>24</option>
+    </select>
+    <span class="sep"></span>
+    <button id="pdfZoomOut" title="Zoom out" aria-label="Zoom out">−</button>
+    <span id="pdfZoomLbl" class="note" style="min-width:3em;text-align:center">100%</span>
+    <button id="pdfZoomIn" title="Zoom in" aria-label="Zoom in">+</button>
+  </div>
+  <div class="row" id="fmtRow" role="toolbar" aria-label="Formatting">
     <button id="undo" title="Undo (Ctrl+Z)"><svg class="i" viewBox="0 0 24 24"><path d="M9 7L4 12l5 5M4 12h11a5 5 0 010 10h-3"/></svg></button>
     <button id="redo" title="Redo (Ctrl+Y)"><svg class="i" viewBox="0 0 24 24"><path d="M15 7l5 5-5 5M20 12H9a5 5 0 000 10h3"/></svg></button>
     <span class="sep"></span>
@@ -183,6 +224,7 @@ button.ghost { border-color: var(--line); }
   <div class="sheet">
     <div id="editor" contenteditable="true" spellcheck="true" aria-label="Document"></div>
   </div>
+  <div id="pdfView" hidden></div>
 </main>
 
 <div class="scrim" id="sigScrim" hidden>
@@ -214,8 +256,8 @@ button.ghost { border-color: var(--line); }
       <div class="saved-box"><img id="savedImg" alt="Your saved signature"></div>
     </div>
     <div class="opts">
-      <label><input type="checkbox" id="optName" checked> Printed name below</label>
-      <label><input type="checkbox" id="optDate" checked> Today's date</label>
+      <label id="optNameL"><input type="checkbox" id="optName" checked> Printed name below</label>
+      <label id="optDateL"><input type="checkbox" id="optDate" checked> Today's date</label>
       <label><input type="checkbox" id="optRemember" checked> Remember on this device</label>
     </div>
     <div class="actions">
@@ -271,6 +313,11 @@ button.ghost { border-color: var(--line); }
   /* ---------- counts ---------- */
   let draftTimer;
   function updateCounts() {
+    if (mode === "pdf" && pd) {
+      $("words").textContent = pd.pages.length + (pd.pages.length === 1 ? " page" : " pages");
+      $("chars").textContent = pd.items.length + " added";
+      return;
+    }
     const t = ed.innerText.replace(/ /g, " ");
     const w = (t.match(/\S+/g) || []).length;
     $("words").textContent = w.toLocaleString() + (w === 1 ? " word" : " words");
@@ -391,7 +438,8 @@ button.ghost { border-color: var(--line); }
 
   /* ---------- open .docx ---------- */
   async function openDocx(file) {
-    if (!/\.docx$/i.test(file.name)) { say("That isn't a .docx file. Older .doc files need to be re-saved as .docx in Word first.", true); return; }
+    if (/\.pdf$/i.test(file.name) || file.type === "application/pdf") { await openPdf(file); return; }
+    if (!/\.docx$/i.test(file.name)) { say("Docx Desk opens .docx and .pdf files. Older .doc files need to be re-saved as .docx in Word first.", true); return; }
     if (!window.JSZip) { say("The document reader didn't load. Check your connection and reload the page.", true); return; }
     say("Opening " + file.name + "…");
     try {
@@ -422,7 +470,7 @@ button.ghost { border-color: var(--line); }
       return;
     }
     $("newDoc").dataset.armed = ""; $("newDoc").textContent = "New";
-    setKeepUI(false); kd = null; newImgs.length = 0;
+    setPdfUI(false); setKeepUI(false); kd = null; newImgs.length = 0;
     ed.innerHTML = "<p><br></p>"; $("docName").value = "Untitled"; updateCounts(); ed.focus(); say("Blank document.");
   });
 
@@ -603,21 +651,22 @@ button.ghost { border-color: var(--line); }
 
   async function saveDocx() {
     if (mode === "rich" && !window.docx) { say("The .docx writer didn't load. Check your connection and reload the page.", true); return; }
-    clearHits();
+    clearHits(); saveNote = "";
     say("Building .docx…");
     try {
       let blob;
-      if (mode === "keep") blob = await keepBuild();
+      if (mode === "pdf") blob = await pdfBuild();
+      else if (mode === "keep") blob = await keepBuild();
       else {
         const images = new Map();
         for (const img of ed.querySelectorAll("img")) { const p = await toPng(img.src); if (p) images.set(img, p); }
         const doc = buildDocument(ed, images);
         blob = await window.docx.Packer.toBlob(doc);
       }
-      const name = ($("docName").value.trim() || "Untitled").replace(/[\\/:*?"<>|]+/g, "-") + ".docx";
+      const name = ($("docName").value.trim() || "Untitled").replace(/[\\/:*?"<>|]+/g, "-") + (mode === "pdf" ? ".pdf" : ".docx");
       const downloads = downloadsP ? await downloadsP : null;
       if (downloads) {
-        try { await downloads.save({ filename: name, data: blob }); say("Saved " + name + "."); }
+        try { await downloads.save({ filename: name, data: blob }); say("Saved " + name + "." + saveNote, !!saveNote); }
         catch (err) {
           const c = err && err.code;
           if (c === "declined") say("Save cancelled.");
@@ -627,7 +676,7 @@ button.ghost { border-color: var(--line); }
       } else {
         const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
         document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-        say("Saved " + name + ".");
+        say("Saved " + name + "." + saveNote, !!saveNote);
       }
     } catch (err) {
       console.error(err); say("Couldn't build the .docx: " + (err && err.message ? err.message : "unknown error"), true);
@@ -638,7 +687,7 @@ button.ghost { border-color: var(--line); }
   document.addEventListener("keydown", (e) => {
     const mod = e.ctrlKey || e.metaKey;
     if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); saveDocx(); }
-    if (mod && e.key.toLowerCase() === "f") { e.preventDefault(); toggleFind(true); }
+    if (mod && e.key.toLowerCase() === "f" && mode !== "pdf") { e.preventDefault(); toggleFind(true); }
     if (e.key === "Escape" && !$("findBar").hidden) toggleFind(false);
   });
 
@@ -741,6 +790,8 @@ button.ghost { border-color: var(--line); }
     $("tabSaved").hidden = !(saved && saved.src);
     if (saved && saved.src) $("savedImg").src = saved.src;
     updateStylePreviews();
+    $("optNameL").hidden = $("optDateL").hidden = mode === "pdf";
+    $("sigInsert").textContent = mode === "pdf" ? "Place signature" : "Insert signature";
     $("sigScrim").hidden = false;
     setMode(saved && saved.src ? "saved" : "draw");
     clearPad();
@@ -765,12 +816,18 @@ button.ghost { border-color: var(--line); }
       sig = await typedSignature();
     } else sig = saved;
     if (!sig) { $("sigErr").textContent = "That signature came out empty. Try again."; return; }
-    if ($("optName").checked && !name) { $("sigErr").textContent = "Type your name, or untick Printed name."; $("sigName").focus(); return; }
+    if (mode !== "pdf" && $("optName").checked && !name) { $("sigErr").textContent = "Type your name, or untick Printed name."; $("sigName").focus(); return; }
 
     if ($("optRemember").checked) {
       saved = { src: sig.src, w: sig.w, h: sig.h, name };
       try { localStorage.setItem(SIG_KEY, JSON.stringify(saved)); } catch (e) {}
     } else if (name && saved) { saved.name = name; }
+
+    if (mode === "pdf") {
+      closeSign();
+      startPlace({ kind: "img", src: sig.src, w: sig.w * PT, h: sig.h * PT }, "Click on the page where the signature should go. Press Esc to cancel.");
+      return;
+    }
 
     const date = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
     const lines = [];
@@ -1116,6 +1173,7 @@ button.ghost { border-color: var(--line); }
     kd = { file, buf, doc, body, all, index: new Map(all.map((n, i) => [n, i])), ids: new Map(), idOf: new Map(), media,
            styles: parseStyles(await parse("word/styles.xml")), num: parseNumbering(await parse("word/numbering.xml")) };
     newImgs.length = 0; counters = new Map(); nextId = 0;
+    setPdfUI(false);
     setKeepUI(true);
     ed.innerHTML = "";
     renderBlocks(body, ed);
@@ -1305,6 +1363,370 @@ button.ghost { border-color: var(--line); }
     const t = (e.clipboardData && e.clipboardData.getData("text/plain")) || "";
     if (t) document.execCommand("insertText", false, t.replace(/\r/g, ""));
   });
+
+  /* =====================================================================
+     PDFs: read the pages, fill in form fields, and place text, dates,
+     marks and signatures on top. The original pages are never rewritten:
+     what you add is drawn onto them when you save.
+     ===================================================================== */
+  const LIBS = {
+    pdfjs: "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js",
+    worker: "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js",
+    pdflib: "https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"
+  };
+  const SRI = {                                    // pinned hashes, same convention as the script tags above
+    pdfjs: "sha256-W1eZ5vjGgGYyB6xbQu4U7tKkBvp69I9QwVTwwLFWaUY=",
+    worker: "sha256-/qvfMJdw7SS7oxpUZ4Ns3Iz2OccFryfVK1hbBBu4Uns=",
+    pdflib: "sha256-D5pcrQeUHwgmWGyU4InYm5GMRuXBfPLVo8b2ZuO8aU8="
+  };
+  const PT = 0.75;                                 // CSS pixels to PDF points
+  const ZOOMS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+  const TEXT_BASELINE = 0.9465, LINE = 1.2;        // first-baseline offset and line height, in text sizes
+  let pd = null;                                   // state of the opened PDF
+  let saveNote = "";
+  let pdfLibsP = null;
+
+  const loadScript = (key) => new Promise((res, rej) => {
+    const src = LIBS[key], s = document.createElement("script"); s.src = src; s.onload = res;
+    if (SRI[key]) { s.integrity = SRI[key]; s.crossOrigin = "anonymous"; }
+    s.onerror = () => rej(new Error("Couldn't load " + src)); document.head.appendChild(s);
+  });
+  function ensurePdfLibs() {
+    if (!pdfLibsP) {
+      pdfLibsP = (async () => {
+        await Promise.all([loadScript("pdfjs"), loadScript("pdflib")]);
+        await loadScript("worker");             // defines the worker so it runs on the page itself (workers can't load from a CDN here)
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = LIBS.worker;
+      })().catch((e) => { pdfLibsP = null; throw e; });
+    }
+    return pdfLibsP;
+  }
+
+  function setPdfUI(on) {
+    if (on) mode = "pdf"; else if (mode === "pdf") mode = "rich";
+    document.body.classList.toggle("pdfmode", on);
+    $("pdfView").hidden = !on; $("pdfRow").hidden = !on; $("fmtRow").hidden = on;
+    if (on) { $("findBar").hidden = true; $("findToggle").setAttribute("aria-pressed", "false"); }
+    $("extLabel").textContent = on ? ".pdf" : ".docx";
+    $("saveLbl").textContent = on ? "Save .pdf" : "Save .docx";
+    if (!on && pd) {
+      try { pd.io.disconnect(); pd.pdf.destroy(); } catch (e) {}
+      pd = null; $("pdfView").innerHTML = ""; document.body.classList.remove("placing");
+    }
+  }
+
+  async function openPdf(file) {
+    say("Opening " + file.name + "…");
+    try {
+      await ensurePdfLibs();
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const pdf = await window.pdfjsLib.getDocument({ data: bytes.slice(0), isEvalSupported: false }).promise;
+      const pages = [], vps = [];
+      for (let i = 1; i <= pdf.numPages; i++) { const p = await pdf.getPage(i); pages.push(p); vps.push(p.getViewport({ scale: 1 })); }
+      const old = pd;
+      pd = { file, bytes, pdf, pages, vps, items: [], nextItem: 1, fields: new Map(), zoom: 2, sel: null, pending: null, scale: 1, pageEls: [], io: null };
+      if (old) { try { old.io.disconnect(); old.pdf.destroy(); } catch (e) {} }
+      setPdfUI(true);
+      $("docName").value = file.name.replace(/\.pdf$/i, "") + " (edited)";
+      buildPages(); updateCounts();
+      say("Opened " + file.name + ". Pick Text, Date, a mark or Sign, then click the page. Form fields are highlighted yellow.");
+    } catch (err) {
+      console.error(err);
+      if (err && err.name === "PasswordException") say("This PDF is password-protected. Remove the password, then open it again.", true);
+      else if (err && /Couldn't load/.test(err.message || "")) say("The PDF tools didn't load. Check your connection and try again.", true);
+      else say("Couldn't read that PDF. It may be damaged.", true);
+    }
+  }
+
+  function buildPages() {
+    const host = $("pdfView"); host.innerHTML = "";
+    if (pd.io) pd.io.disconnect();
+    const maxW = Math.max(...pd.vps.map((v) => v.width));
+    const avail = Math.max(240, host.parentElement.clientWidth - 32);
+    pd.scale = Math.min(1.5, avail / maxW) * ZOOMS[pd.zoom];
+    $("pdfZoomLbl").textContent = Math.round(ZOOMS[pd.zoom] * 100) + "%";
+    pd.io = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) paintPage(+e.target.dataset.i); }), { root: host.parentElement, rootMargin: "900px 0px" });
+    pd.pageEls = pd.vps.map((vp, i) => {
+      const pg = document.createElement("div"); pg.className = "pg"; pg.dataset.i = i;
+      pg.style.width = vp.width * pd.scale + "px"; pg.style.height = vp.height * pd.scale + "px";
+      pg.innerHTML = '<canvas></canvas><div class="fl"></div><div class="il"></div>';
+      pg.addEventListener("pointerdown", onPagePointer);
+      host.appendChild(pg);
+      const il = pg.querySelector(".il");
+      pd.items.filter((it) => it.page === i).forEach((it) => il.appendChild(itemEl(it)));
+      pd.io.observe(pg);
+      return pg;
+    });
+  }
+
+  async function paintPage(i) {
+    const pg = pd.pageEls[i]; if (!pg || pg.dataset.done) return; pg.dataset.done = "1";
+    const page = pd.pages[i], vp0 = pd.vps[i];
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const k = Math.min(1, 3200 / (vp0.width * pd.scale * dpr));
+    const vp = page.getViewport({ scale: pd.scale * dpr * k });
+    const cv = pg.querySelector("canvas");
+    cv.width = Math.floor(vp.width); cv.height = Math.floor(vp.height);
+    cv.style.width = vp0.width * pd.scale + "px"; cv.style.height = vp0.height * pd.scale + "px";
+    try { await page.render({ canvasContext: cv.getContext("2d"), viewport: vp }).promise; } catch (e) { console.error(e); }
+    try { buildFields(i, await page.getAnnotations({ intent: "display" })); } catch (e) { console.error(e); }
+  }
+
+  /* ---- form fields ---- */
+  function fieldState(a) {
+    let st = pd.fields.get(a.fieldName);
+    if (st) return st;
+    const v = a.fieldValue;
+    if (a.checkBox) st = { kind: "check", initial: !!v && v !== "Off" && v !== false };
+    else if (a.radioButton) st = { kind: "radio", initial: v && v !== "Off" ? String(v) : null };
+    else if (a.fieldType === "Ch") st = { kind: "choice", initial: Array.isArray(v) ? v[0] ?? "" : v ?? "", multi: !!a.multiSelect };
+    else st = { kind: "text", initial: Array.isArray(v) ? v.join("\n") : v ?? "" };
+    st.value = st.initial; st.dirty = false; pd.fields.set(a.fieldName, st);
+    return st;
+  }
+  function buildFields(i, annots) {
+    const layer = pd.pageEls[i].querySelector(".fl"), vp = pd.vps[i], s = pd.scale;
+    for (const a of annots) {
+      if (a.subtype !== "Widget" || !a.fieldName || a.readOnly || a.pushButton || a.fieldType === "Sig") continue;
+      if (!["Tx", "Btn", "Ch"].includes(a.fieldType)) continue;
+      const st = fieldState(a);
+      const [x1, y1, x2, y2] = vp.convertToViewportRectangle(a.rect);
+      const L = Math.min(x1, x2) * s, T = Math.min(y1, y2) * s, Wd = Math.abs(x2 - x1) * s, H = Math.abs(y2 - y1) * s;
+      let el;
+      if (st.kind === "check" || st.kind === "radio") {
+        el = document.createElement("input"); el.type = st.kind === "check" ? "checkbox" : "radio";
+        el.checked = st.kind === "check" ? !!st.value : st.value === String(a.buttonValue);
+        if (st.kind === "radio") { el.name = "r_" + a.fieldName; el.dataset.val = String(a.buttonValue); }
+        el.addEventListener("change", () => {
+          if (st.kind === "check") st.value = el.checked; else st.value = el.dataset.val;
+          st.dirty = true; syncField(a.fieldName, el);
+        });
+      } else if (st.kind === "choice") {
+        el = document.createElement("select");
+        for (const o of a.options || []) { const op = document.createElement("option"); op.value = o.exportValue; op.textContent = o.displayValue || o.exportValue; el.appendChild(op); }
+        el.value = st.value; if (el.value !== st.value && st.value) { const op = document.createElement("option"); op.value = op.textContent = st.value; el.appendChild(op); el.value = st.value; }
+        el.addEventListener("change", () => { st.value = el.value; st.dirty = true; syncField(a.fieldName, el); });
+      } else {
+        el = document.createElement(a.multiLine ? "textarea" : "input"); if (!a.multiLine) el.type = "text";
+        el.value = st.value ?? ""; if (a.maxLen) el.maxLength = a.maxLen;
+        el.addEventListener("input", () => { st.value = el.value; st.dirty = true; syncField(a.fieldName, el); });
+      }
+      el.className = "fld"; el.dataset.name = a.fieldName; el.setAttribute("aria-label", a.alternativeText || a.fieldName);
+      el.style.cssText = "left:" + L + "px;top:" + T + "px;width:" + Wd + "px;height:" + H + "px;font-size:" + Math.max(8, Math.min(H * 0.68, 18 * s)) + "px";
+      if (st.kind === "check" || st.kind === "radio") { el.style.width = Math.min(Wd, H) + "px"; el.style.height = Math.min(Wd, H) + "px"; }
+      layer.appendChild(el);
+    }
+  }
+  function syncField(name, src) {   // keep repeated widgets of one field in step
+    const st = pd.fields.get(name);
+    pd.pageEls.forEach((pg) => pg.querySelectorAll(".fld").forEach((el) => {
+      if (el === src || el.dataset.name !== name) return;
+      if (el.type === "checkbox") el.checked = !!st.value; else if (el.type === "radio") el.checked = st.value === el.dataset.val; else el.value = st.value ?? "";
+    }));
+  }
+
+  /* ---- things you place on a page ---- */
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const readTx = (tx) => tx.innerText.replace(/ /g, " ").replace(/\n$/, "");
+  function select(id) {
+    pd.sel = id;
+    pd.pageEls.forEach((pg) => pg.querySelectorAll(".it").forEach((e) => e.classList.toggle("sel", +e.dataset.id === id)));
+    const it = pd.items.find((x) => x.id === id);
+    if (it && it.kind === "text") $("pdfSize").value = String(it.size);
+  }
+  function removeItem(id) {
+    pd.items = pd.items.filter((x) => x.id !== id);
+    document.querySelectorAll('.it[data-id="' + id + '"]').forEach((e) => e.remove());
+    if (pd.sel === id) pd.sel = null;
+    updateCounts();
+  }
+  function dragItem(e, it, el, how) {
+    e.preventDefault(); e.stopPropagation(); select(it.id);
+    const s = pd.scale, sx = e.clientX, sy = e.clientY, ox = it.x, oy = it.y, ow = it.w, oh = it.h, vp = pd.vps[it.page];
+    const move = (ev) => {
+      const dx = (ev.clientX - sx) / s, dy = (ev.clientY - sy) / s;
+      if (how === "move") {
+        it.x = clamp(ox + dx, 0, Math.max(0, vp.width - (it.w || 20))); it.y = clamp(oy + dy, 0, Math.max(0, vp.height - (it.h || it.size * LINE)));
+        el.style.left = it.x * s + "px"; el.style.top = it.y * s + "px";
+      } else {
+        const w = clamp(ow + dx, 8, vp.width - it.x); it.w = w; it.h = w * oh / ow;
+        el.style.width = it.w * s + "px"; el.style.height = it.h * s + "px";
+      }
+    };
+    const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
+    window.addEventListener("pointermove", move); window.addEventListener("pointerup", up);
+  }
+  function itemEl(it) {
+    const s = pd.scale;
+    const el = document.createElement("div");
+    el.className = "it " + it.kind + (pd.sel === it.id ? " sel" : ""); el.dataset.id = it.id;
+    el.style.left = it.x * s + "px"; el.style.top = it.y * s + "px";
+    el.addEventListener("pointerdown", () => { if (pd.sel !== it.id) select(it.id); }, true);
+    const hd = document.createElement("div"); hd.className = "hd";
+    hd.innerHTML = '<span class="grip" title="Drag to move">⠿</span><button class="x" type="button" title="Remove" aria-label="Remove">×</button>';
+    el.appendChild(hd);
+    hd.querySelector(".grip").addEventListener("pointerdown", (e) => dragItem(e, it, el, "move"));
+    hd.querySelector(".x").addEventListener("click", () => removeItem(it.id));
+    if (it.kind === "text") {
+      const tx = document.createElement("div"); tx.className = "tx";
+      tx.contentEditable = "true";
+      try { tx.contentEditable = "plaintext-only"; } catch (e) {}
+      tx.spellcheck = false; tx.textContent = it.text; tx.style.fontSize = it.size * s + "px";
+      tx.addEventListener("input", () => { it.text = readTx(tx); });
+      tx.addEventListener("focus", () => select(it.id));
+      tx.addEventListener("blur", () => { if (!it.text.trim()) removeItem(it.id); });
+      tx.addEventListener("paste", (e) => { e.preventDefault(); document.execCommand("insertText", false, (e.clipboardData.getData("text/plain") || "").replace(/\r/g, "")); });
+      el.appendChild(tx);
+    } else {
+      el.style.width = it.w * s + "px"; el.style.height = it.h * s + "px";
+      let body;
+      if (it.kind === "img") { body = document.createElement("img"); body.src = it.src; body.alt = "Signature"; body.draggable = false; }
+      else {
+        const d = it.kind === "check" ? "M12 55 L40 82 L88 18" : "M15 15 L85 85 M85 15 L15 85";
+        body = document.createElementNS("http://www.w3.org/2000/svg", "svg"); body.setAttribute("viewBox", "0 0 100 100"); body.setAttribute("preserveAspectRatio", "none");
+        body.innerHTML = '<path d="' + d + '" fill="none" stroke="#111" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>';
+      }
+      body.addEventListener("pointerdown", (e) => dragItem(e, it, el, "move"));
+      el.appendChild(body);
+      const rz = document.createElement("span"); rz.className = "rz"; rz.title = "Drag to resize";
+      rz.addEventListener("pointerdown", (e) => dragItem(e, it, el, "resize"));
+      el.appendChild(rz);
+    }
+    return el;
+  }
+  function startPlace(spec, hint) {
+    if (!pd) return;
+    pd.pending = spec; document.body.classList.add("placing");
+    document.querySelectorAll("#pdfRow [data-tool]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.tool === spec.kind ? "true" : "false"));
+    say(hint);
+  }
+  function cancelPlace() {
+    if (!pd) return;
+    pd.pending = null; document.body.classList.remove("placing");
+    document.querySelectorAll("#pdfRow [data-tool]").forEach((b) => b.setAttribute("aria-pressed", "false"));
+  }
+  function onPagePointer(e) {
+    if (e.target.closest(".it")) return;
+    const i = +e.currentTarget.dataset.i;
+    if (!pd.pending) { if (!e.target.closest(".fld")) select(null); return; }
+    e.preventDefault();
+    const r = e.currentTarget.getBoundingClientRect();
+    place(i, (e.clientX - r.left) / pd.scale, (e.clientY - r.top) / pd.scale);
+  }
+  function place(i, x, y) {
+    const p = pd.pending, vp = pd.vps[i], size = +$("pdfSize").value || 12;
+    cancelPlace();
+    const it = { id: pd.nextItem++, page: i, kind: p.kind === "date" ? "text" : p.kind };
+    if (it.kind === "text") {
+      // the click marks the line to write on: the text sits just above it
+      it.size = size; it.x = clamp(x, 0, vp.width - 10); it.y = clamp(y - 1 - TEXT_BASELINE * size, 0, vp.height - size);
+      it.text = p.kind === "date" ? new Date().toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }) : "";
+    } else {
+      it.w = p.w || 14; it.h = p.h || 14;
+      // marks centre on the click; a signature rests on the clicked line, with its lower strokes dipping below it
+      it.x = clamp(x - it.w / 2, 0, Math.max(0, vp.width - it.w)); it.y = clamp(y - it.h * (it.kind === "img" ? 0.78 : 0.5), 0, Math.max(0, vp.height - it.h));
+      if (it.kind === "img") it.src = p.src;
+    }
+    pd.items.push(it);
+    const el = itemEl(it); pd.pageEls[i].querySelector(".il").appendChild(el);
+    select(it.id); updateCounts();
+    if (it.kind === "text") { const tx = el.querySelector(".tx"); tx.focus(); const r = document.createRange(); r.selectNodeContents(tx); r.collapse(false); const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r); }
+    say(it.kind === "text" ? "Type your text. Drag the ⠿ handle to move it." : "Placed. Drag to move, or drag the corner to resize.");
+  }
+
+  document.querySelectorAll("#pdfRow [data-tool]").forEach((b) => b.addEventListener("click", () => {
+    if (!pd) return;
+    if (pd.pending && pd.pending.kind === b.dataset.tool) { cancelPlace(); say(""); return; }
+    const k = b.dataset.tool;
+    startPlace({ kind: k }, k === "text" ? "Click where the text should go." : k === "date" ? "Click where the date should go." : "Click where the mark should go.");
+  }));
+  $("pdfSignBtn").addEventListener("click", () => { if (pd) openSign(); });
+  $("pdfSize").addEventListener("change", () => {
+    if (!pd) return;
+    const it = pd.items.find((x) => x.id === pd.sel);
+    if (it && it.kind === "text") { it.size = +$("pdfSize").value; const tx = document.querySelector('.it[data-id="' + it.id + '"] .tx'); if (tx) tx.style.fontSize = it.size * pd.scale + "px"; }
+  });
+  const zoomBy = (d) => { if (!pd) return; const z = clamp(pd.zoom + d, 0, ZOOMS.length - 1); if (z !== pd.zoom) { pd.zoom = z; buildPages(); } };
+  $("pdfZoomIn").addEventListener("click", () => zoomBy(1));
+  $("pdfZoomOut").addEventListener("click", () => zoomBy(-1));
+  document.addEventListener("keydown", (e) => {
+    if (mode !== "pdf" || !pd) return;
+    if (e.key === "Escape") {
+      if (pd.pending) { cancelPlace(); say(""); }
+      else { if (document.activeElement && document.activeElement.closest && document.activeElement.closest(".it")) document.activeElement.blur(); select(null); }
+    }
+    const a = document.activeElement, editing = a && (a.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName));
+    if ((e.key === "Delete" || e.key === "Backspace") && pd.sel && !editing && $("sigScrim").hidden) { e.preventDefault(); removeItem(pd.sel); }
+  });
+  window.addEventListener("resize", () => { if (mode === "pdf" && pd) { clearTimeout(pd.rt); pd.rt = setTimeout(buildPages, 250); } });
+
+  /* ---- writing the result ---- */
+  async function pdfBuild() {
+    const fieldsChanged = [...pd.fields.values()].some((f) => f.dirty);
+    if (!pd.items.length && !fieldsChanged) return pd.file;   // nothing added: hand back the original bytes
+    const { PDFDocument, StandardFonts, rgb, degrees, LineCapStyle } = window.PDFLib;
+    let doc;
+    try { doc = await PDFDocument.load(pd.bytes); }
+    catch (e) { throw new Error("This PDF is protected, so it can't be changed here."); }
+    const notes = [];
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    if (fieldsChanged) {
+      const form = doc.getForm();
+      for (const [name, f] of pd.fields) {
+        if (!f.dirty) continue;
+        try {
+          if (f.kind === "text") {
+            const tf = form.getTextField(name);
+            if (tf.isMultiline()) {   // auto-sized multi-line fields come out huge, so give them a normal size
+              let sz = 0, h = 0;
+              try { const m = /(\d+(?:\.\d+)?)\s+Tf/.exec(tf.acroField.getDefaultAppearance() || ""); sz = m ? +m[1] : 0; h = tf.acroField.getWidgets()[0].getRectangle().height; } catch (e) {}
+              if (!sz || (h && sz > h / 2)) tf.setFontSize(11);
+            }
+            tf.setText(f.value || undefined);
+          }
+          else if (f.kind === "check") { const c = form.getCheckBox(name); if (f.value) c.check(); else c.uncheck(); }
+          else if (f.kind === "radio") {
+            const g = form.getRadioGroup(name), opts = g.getOptions();
+            let v = f.value;   // some files name the on-state by position rather than by option name
+            if (!opts.includes(v) && /^\d+$/.test(v) && opts[+v] !== undefined) v = opts[+v];
+            g.select(v);
+          }
+          else { let c; try { c = form.getDropdown(name); } catch (e) { c = form.getOptionList(name); } c.select(f.value); }
+        } catch (e) { notes.push(name); }
+      }
+      try { form.updateFieldAppearances(font); } catch (e) { notes.push("appearances"); }
+    }
+    const pages = doc.getPages(), imgs = new Map(), ink = rgb(0.07, 0.07, 0.07);
+    let swapped = 0;
+    for (const it of pd.items) {
+      const page = pages[it.page], vp = pd.vps[it.page], R = vp.rotation || 0;
+      const at = (x, y) => { const [px, py] = vp.convertToPdfPoint(x, y); return { x: px, y: py }; };
+      if (it.kind === "text") {
+        it.text.split("\n").forEach((line, n) => {
+          let out = "";
+          for (const ch of line) { try { font.encodeText(ch); out += ch; } catch (e) { out += "?"; swapped++; } }
+          if (!out.trim()) return;
+          const pos = at(it.x, it.y + (TEXT_BASELINE + n * LINE) * it.size);
+          page.drawText(out, { x: pos.x, y: pos.y, size: it.size, font, color: ink, rotate: degrees(R) });
+        });
+      } else if (it.kind === "img") {
+        let img = imgs.get(it.src);
+        if (!img) { img = await doc.embedPng(Uint8Array.from(atob(it.src.split(",")[1]), (c) => c.charCodeAt(0))); imgs.set(it.src, img); }
+        const pos = at(it.x, it.y + it.h);
+        page.drawImage(img, { x: pos.x, y: pos.y, width: it.w, height: it.h, rotate: degrees(R) });
+      } else {
+        const P = it.kind === "check" ? [[0.12, 0.55], [0.40, 0.82], [0.88, 0.18]] : null;
+        const segs = P ? [[P[0], P[1]], [P[1], P[2]]] : [[[0.15, 0.15], [0.85, 0.85]], [[0.85, 0.15], [0.15, 0.85]]];
+        for (const [a, b] of segs) {
+          page.drawLine({ start: at(it.x + a[0] * it.w, it.y + a[1] * it.h), end: at(it.x + b[0] * it.w, it.y + b[1] * it.h), thickness: Math.max(1, it.w * 0.11), color: ink, lineCap: LineCapStyle.Round });
+        }
+      }
+    }
+    const out = await doc.save();
+    if (swapped) saveNote = " " + swapped + " character" + (swapped === 1 ? "" : "s") + " can't be written in PDF text and became ?.";
+    else if (notes.length) saveNote = " Some form fields couldn't be filled: " + notes.slice(0, 3).join(", ") + ".";
+    return new Blob([out], { type: "application/pdf" });
+  }
 
   window.__docxDesk = { buildDocument };
 })();
