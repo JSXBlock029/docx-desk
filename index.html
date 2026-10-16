@@ -141,6 +141,14 @@ input.fld[type=checkbox], input.fld[type=radio] { padding: 0; accent-color: var(
 .field input[type=text] { font: 14px var(--font-ui); height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--paper); color: var(--doc-ink); }
 .pad-wrap { position: relative; background: var(--paper); border: 1px solid var(--line); border-radius: 6px; }
 #sigPad { display: block; width: 100%; height: 180px; touch-action: none; cursor: crosshair; }
+.pad-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; font-size: 12px; color: var(--muted); }
+.pad-tools .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.pad-tools .seg button { border: none; border-radius: 0; height: 30px; }
+.pad-tools .seg button[aria-pressed="true"] { border-radius: 0; }
+.pad-tools label { display: inline-flex; align-items: center; gap: 8px; }
+.pad-tools input[type=range] { width: 140px; accent-color: var(--accent); }
+#sigPad.erasing { cursor: none; }
+.pad-cursor { position: absolute; display: none; pointer-events: none; border: 1.5px solid #5b6770; border-radius: 50%; background: rgba(255,255,255,.35); transform: translate(-50%, -50%); box-sizing: border-box; }
 .pad-line { position: absolute; left: 24px; right: 24px; bottom: 40px; border-bottom: 1px solid #b9c3cb; pointer-events: none; }
 .pad-hint { position: absolute; left: 24px; bottom: 16px; font-size: 12px; color: #7d8891; pointer-events: none; }
 .styles { display: grid; grid-template-columns: 1fr; gap: 6px; }
@@ -239,8 +247,16 @@ button.ghost { border-color: var(--line); }
       <button role="tab" id="tabSaved" aria-selected="false" data-mode="saved" hidden>Saved</button>
     </div>
     <div id="paneDraw">
+      <div class="pad-tools">
+        <span class="seg" role="group" aria-label="Drawing tool">
+          <button id="toolPen" aria-pressed="true" title="Pen">Pen</button>
+          <button id="toolEraser" aria-pressed="false" title="Eraser">Eraser</button>
+        </span>
+        <label>Size <input type="range" id="toolSize" min="1" max="12" step="0.5" value="2.4" aria-label="Tool size"> <span id="toolSizeVal">2.4</span></label>
+      </div>
       <div class="pad-wrap">
         <canvas id="sigPad" aria-label="Signature drawing area"></canvas>
+        <div class="pad-cursor" id="padCursor"></div>
         <div class="pad-line"></div>
         <div class="pad-hint">Sign above the line</div>
       </div>
@@ -720,9 +736,38 @@ button.ghost { border-color: var(--line); }
       pad.width = Math.round(w * dpr); pad.height = Math.round(h * dpr); hasInk = false;
     }
     pctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    pctx.lineCap = "round"; pctx.lineJoin = "round"; pctx.strokeStyle = INK; pctx.lineWidth = 2.4;
+    pctx.lineCap = "round"; pctx.lineJoin = "round";
   }
-  function clearPad() { pctx.save(); pctx.setTransform(1, 0, 0, 1, 0, 0); pctx.clearRect(0, 0, pad.width, pad.height); pctx.restore(); hasInk = false; }
+  // Pen and eraser each remember their own size.
+  const SIZES = { pen: { min: 1, max: 12, step: 0.5, v: 2.4 }, eraser: { min: 6, max: 60, step: 2, v: 18 } };
+  let tool = "pen";
+  const toolSize = () => SIZES[tool].v;
+  function setTool(t) {
+    tool = t; const z = SIZES[t];
+    $("toolPen").setAttribute("aria-pressed", t === "pen" ? "true" : "false");
+    $("toolEraser").setAttribute("aria-pressed", t === "eraser" ? "true" : "false");
+    const r = $("toolSize"); r.min = z.min; r.max = z.max; r.step = z.step; r.value = z.v;
+    $("toolSizeVal").textContent = z.v; pad.classList.toggle("erasing", t === "eraser");
+    $("padCursor").style.display = "none";
+  }
+  $("toolPen").addEventListener("click", () => setTool("pen"));
+  $("toolEraser").addEventListener("click", () => setTool("eraser"));
+  $("toolSize").addEventListener("input", (e) => { SIZES[tool].v = +e.target.value; $("toolSizeVal").textContent = e.target.value; });
+  function brush() {
+    pctx.globalCompositeOperation = tool === "eraser" ? "destination-out" : "source-over";
+    pctx.strokeStyle = pctx.fillStyle = tool === "eraser" ? "#000" : INK;
+    pctx.lineWidth = toolSize();
+  }
+  function moveCursor(e) {
+    const c = $("padCursor");
+    if (tool !== "eraser") { c.style.display = "none"; return; }
+    const r = pad.getBoundingClientRect(), d = toolSize();
+    c.style.cssText = "display:block;width:" + d + "px;height:" + d + "px;left:" + (e.clientX - r.left) + "px;top:" + (e.clientY - r.top) + "px";
+  }
+  pad.addEventListener("pointermove", moveCursor);
+  pad.addEventListener("pointerenter", moveCursor);
+  pad.addEventListener("pointerleave", () => { $("padCursor").style.display = "none"; });
+  function clearPad() { pctx.save(); pctx.globalCompositeOperation = "source-over"; pctx.setTransform(1, 0, 0, 1, 0, 0); pctx.clearRect(0, 0, pad.width, pad.height); pctx.restore(); hasInk = false; }
   $("sigClear").addEventListener("click", clearPad);
 
   let pts = null;
@@ -730,15 +775,15 @@ button.ghost { border-color: var(--line); }
   pad.addEventListener("pointerdown", (e) => {
     e.preventDefault(); pad.setPointerCapture(e.pointerId);
     pts = [pos(e)];
-    pctx.beginPath(); pctx.arc(pts[0].x, pts[0].y, 1.2, 0, Math.PI * 2); pctx.fillStyle = INK; pctx.fill();
-    hasInk = true; $("sigErr").textContent = "";
+    brush(); pctx.beginPath(); pctx.arc(pts[0].x, pts[0].y, toolSize() / 2, 0, Math.PI * 2); pctx.fill();
+    if (tool === "pen") hasInk = true; $("sigErr").textContent = "";
   });
   pad.addEventListener("pointermove", (e) => {
     if (!pts) return;
     const p = pos(e); pts.push(p);
     if (pts.length < 3) return;
     const [a, b, c] = pts.slice(-3);
-    pctx.beginPath();
+    brush(); pctx.beginPath();
     pctx.moveTo((a.x + b.x) / 2, (a.y + b.y) / 2);
     pctx.quadraticCurveTo(b.x, b.y, (b.x + c.x) / 2, (b.y + c.y) / 2);
     pctx.stroke();

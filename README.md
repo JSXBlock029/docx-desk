@@ -12,7 +12,7 @@ A Word (.docx) and PDF editor that runs in your browser. Open a .docx, edit it, 
 - Add images, and paste as plain text
 - A blank page (New) has a full formatting toolbar: styles, bold, italic, underline, lists, alignment, links and tables
 - Find and replace (Ctrl+F)
-- **Sign:** draw your signature or type it in a handwriting font, with an optional printed name and date. You can save it in your browser and reuse it.
+- **Sign:** draw your signature (pen and eraser, each with adjustable size) or type it in a handwriting font, with an optional printed name and date. You can save it in your browser and reuse it.
 - Save as .docx (Ctrl+S). Your current draft is kept in the browser between visits.
 
 ## PDFs
