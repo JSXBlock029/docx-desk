@@ -113,6 +113,11 @@ body.pdfmode .sheet { display: none; }
 .pg .il { pointer-events: none; }
 body.placing .pg { cursor: crosshair; }
 body.placing .pg .fl { pointer-events: none; }
+.pg .wp { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+body.erasing .pg { cursor: none; touch-action: none; }
+body.erasing .pg .fl, body.erasing .pg .it { pointer-events: none; }
+.era-cur { position: fixed; z-index: 25; display: none; pointer-events: none; border: 1.5px solid #5b6770; border-radius: 50%; background: rgba(255,255,255,.4); transform: translate(-50%, -50%); box-sizing: border-box; }
+#pdfEraseSize { width: 96px; accent-color: var(--accent); }
 .it { position: absolute; pointer-events: auto; color: #111; }
 .it:hover { outline: 1px dashed var(--accent); }
 .it.sel { outline: 1.5px solid var(--accent); }
@@ -180,6 +185,10 @@ button.ghost { border-color: var(--line); }
     <button data-tool="check" aria-pressed="false" title="Add a checkmark"><svg class="i" viewBox="0 0 24 24"><path d="M5 13l4 4 10-11"/></svg></button>
     <button data-tool="cross" aria-pressed="false" title="Add an X"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     <button id="pdfSignBtn" title="Add your signature"><svg class="i" viewBox="0 0 24 24"><path d="M3 17c3-6 5-9 6-8s-2 7 0 7 3-4 4-4 0 3 2 3 3-2 6-2M3 21h18"/></svg>Sign</button>
+    <span class="sep"></span>
+    <button id="pdfErase" aria-pressed="false" title="Erase: paint over anything on the page"><svg class="i" viewBox="0 0 24 24"><path d="M4 16l9-10 7 6-6 8H8zM9 20h11M8 12l7 6"/></svg>Erase</button>
+    <input type="range" id="pdfEraseSize" min="4" max="60" step="2" value="14" aria-label="Eraser size" title="Eraser size"><span id="pdfEraseVal" class="note" style="min-width:2.4em">14</span>
+    <button id="pdfEraseUndo" title="Undo last erase stroke" aria-label="Undo last erase stroke" disabled><svg class="i" viewBox="0 0 24 24"><path d="M9 14L4 9l5-5M4 9h10a6 6 0 010 12h-3"/></svg></button>
     <span class="sep"></span>
     <select id="pdfSize" aria-label="Text size" title="Text size">
       <option>8</option><option>9</option><option>10</option><option>11</option><option selected>12</option><option>14</option><option>16</option><option>18</option><option>24</option>
@@ -331,7 +340,8 @@ button.ghost { border-color: var(--line); }
   function updateCounts() {
     if (mode === "pdf" && pd) {
       $("words").textContent = pd.pages.length + (pd.pages.length === 1 ? " page" : " pages");
-      $("chars").textContent = pd.items.length + " added";
+      $("chars").textContent = (pd.items.length + pd.wipes.length) + " added";
+      $("pdfEraseUndo").disabled = !pd.wipes.length;
       return;
     }
     const t = ed.innerText.replace(/ /g, " ");
@@ -1456,7 +1466,7 @@ button.ghost { border-color: var(--line); }
     $("saveLbl").textContent = on ? "Save .pdf" : "Save .docx";
     if (!on && pd) {
       try { pd.io.disconnect(); pd.pdf.destroy(); } catch (e) {}
-      pd = null; $("pdfView").innerHTML = ""; document.body.classList.remove("placing");
+      pd = null; $("pdfView").innerHTML = ""; document.body.classList.remove("placing", "erasing"); eraseCur.style.display = "none"; $("pdfErase").setAttribute("aria-pressed", "false");
     }
   }
 
@@ -1469,7 +1479,7 @@ button.ghost { border-color: var(--line); }
       const pages = [], vps = [];
       for (let i = 1; i <= pdf.numPages; i++) { const p = await pdf.getPage(i); pages.push(p); vps.push(p.getViewport({ scale: 1 })); }
       const old = pd;
-      pd = { file, bytes, pdf, pages, vps, items: [], nextItem: 1, fields: new Map(), zoom: 2, sel: null, pending: null, scale: 1, pageEls: [], io: null };
+      pd = { file, bytes, pdf, pages, vps, items: [], wipes: [], erase: false, nextItem: 1, fields: new Map(), zoom: 2, sel: null, pending: null, scale: 1, pageEls: [], io: null };
       if (old) { try { old.io.disconnect(); old.pdf.destroy(); } catch (e) {} }
       setPdfUI(true);
       $("docName").value = file.name.replace(/\.pdf$/i, "") + " (edited)";
@@ -1494,7 +1504,9 @@ button.ghost { border-color: var(--line); }
     pd.pageEls = pd.vps.map((vp, i) => {
       const pg = document.createElement("div"); pg.className = "pg"; pg.dataset.i = i;
       pg.style.width = vp.width * pd.scale + "px"; pg.style.height = vp.height * pd.scale + "px";
-      pg.innerHTML = '<canvas></canvas><div class="fl"></div><div class="il"></div>';
+      pg.innerHTML = '<canvas></canvas><svg class="wp" viewBox="0 0 ' + vp.width + " " + vp.height + '" preserveAspectRatio="none"></svg><div class="fl"></div><div class="il"></div>';
+      const wp = pg.querySelector(".wp");
+      pd.wipes.filter((w) => w.page === i).forEach((w) => wp.appendChild(wipeEl(w)));
       pg.addEventListener("pointerdown", onPagePointer);
       host.appendChild(pg);
       const il = pg.querySelector(".il");
@@ -1502,6 +1514,7 @@ button.ghost { border-color: var(--line); }
       pd.io.observe(pg);
       return pg;
     });
+    if (pd.erase) sizeCursor();
   }
 
   async function paintPage(i) {
@@ -1639,8 +1652,60 @@ button.ghost { border-color: var(--line); }
     }
     return el;
   }
+  /* ---- eraser: white strokes painted over the page ---- */
+  const SVGNS = "http://www.w3.org/2000/svg";
+  function wipeEl(w) {
+    const el = document.createElementNS(SVGNS, "polyline");
+    el.setAttribute("points", w.pts.map((q) => q[0] + "," + q[1]).join(" ") + (w.pts.length === 1 ? " " + (w.pts[0][0] + 0.01) + "," + w.pts[0][1] : ""));
+    el.setAttribute("fill", "none"); el.setAttribute("stroke", "#fff"); el.setAttribute("stroke-width", w.size);
+    el.setAttribute("stroke-linecap", "round"); el.setAttribute("stroke-linejoin", "round");
+    w.el = el; return el;
+  }
+  const eraseCur = document.createElement("div"); eraseCur.className = "era-cur"; document.body.appendChild(eraseCur);
+  function sizeCursor() { const d = (+$("pdfEraseSize").value) * pd.scale; eraseCur.style.width = eraseCur.style.height = d + "px"; }
+  function setErase(on) {
+    if (!pd) return;
+    pd.erase = on; document.body.classList.toggle("erasing", on);
+    $("pdfErase").setAttribute("aria-pressed", on ? "true" : "false");
+    if (on) { cancelPlace(); select(null); sizeCursor(); say("Drag across the page to paint over it. Esc to stop."); }
+    else eraseCur.style.display = "none";
+  }
+  function eraseDown(e) {
+    e.preventDefault();
+    const pg = e.currentTarget, i = +pg.dataset.i, s = pd.scale;
+    const pt = (ev) => { const r = pg.getBoundingClientRect(); return [+((ev.clientX - r.left) / s).toFixed(2), +((ev.clientY - r.top) / s).toFixed(2)]; };
+    const w = { page: i, size: +$("pdfEraseSize").value, pts: [pt(e)] };
+    pg.querySelector(".wp").appendChild(wipeEl(w));
+    const move = (ev) => {
+      const q = pt(ev), l = w.pts[w.pts.length - 1];
+      if (Math.hypot(q[0] - l[0], q[1] - l[1]) < 1) return;
+      w.pts.push(q); w.el.setAttribute("points", w.pts.map((z) => z[0] + "," + z[1]).join(" "));
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); window.removeEventListener("pointercancel", up);
+      pd.wipes.push(w); updateCounts();
+    };
+    window.addEventListener("pointermove", move); window.addEventListener("pointerup", up); window.addEventListener("pointercancel", up);
+  }
+  function undoErase() {
+    if (!pd || !pd.wipes.length) return;
+    const w = pd.wipes.pop(); if (w.el) w.el.remove();
+    document.querySelectorAll(".pg .wp polyline").forEach((el) => { if (!pd.wipes.some((x) => x.el === el)) el.remove(); });
+    updateCounts();
+  }
+  $("pdfErase").addEventListener("click", () => setErase(!(pd && pd.erase)));
+  $("pdfEraseUndo").addEventListener("click", undoErase);
+  $("pdfEraseSize").addEventListener("input", (e) => { $("pdfEraseVal").textContent = e.target.value; if (pd) sizeCursor(); });
+  document.addEventListener("pointermove", (e) => {
+    if (!pd || !pd.erase) return;
+    const over = e.target.closest && e.target.closest(".pg");
+    eraseCur.style.display = over ? "block" : "none";
+    if (over) { eraseCur.style.left = e.clientX + "px"; eraseCur.style.top = e.clientY + "px"; }
+  });
+
   function startPlace(spec, hint) {
     if (!pd) return;
+    if (pd.erase) setErase(false);
     pd.pending = spec; document.body.classList.add("placing");
     document.querySelectorAll("#pdfRow [data-tool]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.tool === spec.kind ? "true" : "false"));
     say(hint);
@@ -1651,6 +1716,7 @@ button.ghost { border-color: var(--line); }
     document.querySelectorAll("#pdfRow [data-tool]").forEach((b) => b.setAttribute("aria-pressed", "false"));
   }
   function onPagePointer(e) {
+    if (pd.erase) { eraseDown(e); return; }
     if (e.target.closest(".it")) return;
     const i = +e.currentTarget.dataset.i;
     if (!pd.pending) { if (!e.target.closest(".fld")) select(null); return; }
@@ -1696,6 +1762,8 @@ button.ghost { border-color: var(--line); }
   $("pdfZoomOut").addEventListener("click", () => zoomBy(-1));
   document.addEventListener("keydown", (e) => {
     if (mode !== "pdf" || !pd) return;
+    if (e.key === "Escape" && pd.erase) { setErase(false); say(""); return; }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && pd.erase) { e.preventDefault(); undoErase(); return; }
     if (e.key === "Escape") {
       if (pd.pending) { cancelPlace(); say(""); }
       else { if (document.activeElement && document.activeElement.closest && document.activeElement.closest(".it")) document.activeElement.blur(); select(null); }
@@ -1708,7 +1776,7 @@ button.ghost { border-color: var(--line); }
   /* ---- writing the result ---- */
   async function pdfBuild() {
     const fieldsChanged = [...pd.fields.values()].some((f) => f.dirty);
-    if (!pd.items.length && !fieldsChanged) return pd.file;   // nothing added: hand back the original bytes
+    if (!pd.items.length && !pd.wipes.length && !fieldsChanged) return pd.file;   // nothing added: hand back the original bytes
     const { PDFDocument, StandardFonts, rgb, degrees, LineCapStyle } = window.PDFLib;
     let doc;
     try { doc = await PDFDocument.load(pd.bytes); }
@@ -1743,6 +1811,13 @@ button.ghost { border-color: var(--line); }
     }
     const pages = doc.getPages(), imgs = new Map(), ink = rgb(0.07, 0.07, 0.07);
     let swapped = 0;
+    const white = rgb(1, 1, 1);
+    for (const w of pd.wipes) {   // erase strokes go down first so everything you added sits on top
+      const page = pages[w.page], vp = pd.vps[w.page];
+      const at = (x, y) => { const [px, py] = vp.convertToPdfPoint(x, y); return { x: px, y: py }; };
+      if (w.pts.length === 1) { const c = at(w.pts[0][0], w.pts[0][1]); page.drawCircle({ x: c.x, y: c.y, size: w.size / 2, color: white, borderWidth: 0 }); continue; }
+      for (let k = 1; k < w.pts.length; k++) page.drawLine({ start: at(w.pts[k - 1][0], w.pts[k - 1][1]), end: at(w.pts[k][0], w.pts[k][1]), thickness: w.size, color: white, lineCap: LineCapStyle.Round });
+    }
     for (const it of pd.items) {
       const page = pages[it.page], vp = pd.vps[it.page], R = vp.rotation || 0;
       const at = (x, y) => { const [px, py] = vp.convertToPdfPoint(x, y); return { x: px, y: py }; };

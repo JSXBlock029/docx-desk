@@ -20,6 +20,7 @@ A Word (.docx) and PDF editor that runs in your browser. Open a .docx, edit it, 
 Open a PDF with the Open button or by dragging it onto the page.
 
 - **Sign:** draw or type a signature, then click the page where it should go. Drag to move it and pull the corner to resize.
+- **Erase:** paint white over anything on the page, with an adjustable brush size and undo. It covers the page visually; the original content is still in the file underneath, so it isn't a secure redaction.
 - **Text and Date:** click a line on the page and type. The text sits just above the spot you click. Choose the text size in the toolbar.
 - **Checkmark and X:** click a box to mark it.
 - **Form fields:** fillable fields (text, multi-line, checkboxes, radio buttons, dropdowns) are highlighted in yellow. Fill them in directly.
